@@ -1,5 +1,9 @@
 import argparse
-from libmproxy import proxy, flow, cmdline
+from libmproxy import cmdline
+from libmproxy.proxy import ProxyConfig, process_proxy_options
+from libmproxy.proxy.connection import ServerConnection
+from libmproxy.proxy.primitives import ProxyError
+from libmproxy.proxy.server import DummyServer, ProxyServer, ConnectionHandler
 import tutils
 from libpathod import test
 from netlib import http, tcp
@@ -7,28 +11,8 @@ import mock
 
 
 def test_proxy_error():
-    p = proxy.ProxyError(111, "msg")
+    p = ProxyError(111, "msg")
     assert str(p)
-
-
-def test_app_registry():
-    ar = proxy.AppRegistry()
-    ar.add("foo", "domain", 80)
-
-    r = tutils.treq()
-    r.host = "domain"
-    r.port = 80
-    assert ar.get(r)
-
-    r.port = 81
-    assert not ar.get(r)
-
-    r = tutils.treq()
-    r.host = "domain2"
-    r.port = 80
-    assert not ar.get(r)
-    r.headers["host"] = ["domain"]
-    assert ar.get(r)
 
 
 class TestServerConnection:
@@ -39,49 +23,44 @@ class TestServerConnection:
         self.d.shutdown()
 
     def test_simple(self):
-        sc = proxy.ServerConnection(proxy.ProxyConfig(), "http", self.d.IFACE, self.d.port, "host.com")
+        sc = ServerConnection((self.d.IFACE, self.d.port))
         sc.connect()
-        r = tutils.treq()
-        r.path = "/p/200:da"
-        sc.send(r)
-        assert http.read_response(sc.rfile, r.method, 1000)
+        f = tutils.tflow()
+        f.server_conn = sc
+        f.request.path = "/p/200:da"
+        sc.send(f.request.assemble())
+        assert http.read_response(sc.rfile, f.request.method, 1000)
         assert self.d.last_log()
 
-        r.content = flow.CONTENT_MISSING
-        tutils.raises("incomplete request", sc.send, r)
-
-        sc.terminate()
+        sc.finish()
 
     def test_terminate_error(self):
-        sc = proxy.ServerConnection(proxy.ProxyConfig(), "http", self.d.IFACE, self.d.port, "host.com")
+        sc = ServerConnection((self.d.IFACE, self.d.port))
         sc.connect()
         sc.connection = mock.Mock()
+        sc.connection.recv = mock.Mock(return_value=False)
         sc.connection.flush = mock.Mock(side_effect=tcp.NetLibDisconnect)
-        sc.terminate()
+        sc.finish()
 
-
-class MockParser:
-    def __init__(self):
-        self.err = None
-
-    def error(self, e):
-        self.err = e
-
-    def __repr__(self):
-        return "ParseError(%s)"%self.err
+    def test_repr(self):
+        sc = tutils.tserver_conn()
+        assert "address:22" in repr(sc)
+        assert "ssl" not in repr(sc)
+        sc.ssl_established = True
+        assert "ssl" in repr(sc)
+        sc.sni = "foo"
+        assert "foo" in repr(sc)
 
 
 class TestProcessProxyOptions:
     def p(self, *args):
-        parser = argparse.ArgumentParser()
+        parser = tutils.MockParser()
         cmdline.common_options(parser)
         opts = parser.parse_args(args=args)
-        m = MockParser()
-        return m, proxy.process_proxy_options(m, opts)
+        return parser, process_proxy_options(parser, opts)
 
     def assert_err(self, err, *args):
-        m, p = self.p(*args)
-        assert err.lower() in m.err.lower()
+        tutils.raises(err, self.p, *args)
 
     def assert_noerr(self, *args):
         m, p = self.p(*args)
@@ -91,30 +70,38 @@ class TestProcessProxyOptions:
     def test_simple(self):
         assert self.p()
 
-    def test_cert(self):
-        self.assert_noerr("--cert", tutils.test_data.path("data/testkey.pem"))
-        self.assert_err("does not exist", "--cert", "nonexistent")
-
-    def test_confdir(self):
-        with tutils.tmpdir() as confdir:
-            self.assert_noerr("--confdir", confdir)
+    def test_cadir(self):
+        with tutils.tmpdir() as cadir:
+            self.assert_noerr("--cadir", cadir)
 
     @mock.patch("libmproxy.platform.resolver", None)
     def test_no_transparent(self):
         self.assert_err("transparent mode not supported", "-T")
 
+
     @mock.patch("libmproxy.platform.resolver")
-    def test_transparent_reverse(self, o):
-        self.assert_err("can't set both", "-P", "reverse", "-T")
+    def test_modes(self, _):
+        self.assert_noerr("-R", "http://localhost")
+        self.assert_err("expected one argument", "-R")
+        self.assert_err("Invalid server specification", "-R", "reverse")
+
         self.assert_noerr("-T")
-        assert o.call_count == 1
-        self.assert_err("invalid reverse proxy", "-P", "reverse")
-        self.assert_noerr("-P", "http://localhost")
+
+        self.assert_noerr("-U", "http://localhost")
+        self.assert_err("expected one argument", "-U")
+        self.assert_err("Invalid server specification", "-U", "upstream")
+
+        self.assert_err("mutually exclusive", "-R", "http://localhost", "-T")
+
+    def test_client_certs(self):
+        with tutils.tmpdir() as cadir:
+            self.assert_noerr("--client-certs", cadir)
+            self.assert_err("directory does not exist", "--client-certs", "nonexistent")
 
     def test_certs(self):
-        with tutils.tmpdir() as confdir:
-            self.assert_noerr("--client-certs", confdir)
-            self.assert_err("directory does not exist", "--client-certs", "nonexistent")
+        with tutils.tmpdir() as cadir:
+            self.assert_noerr("--cert", tutils.test_data.path("data/testkey.pem"))
+            self.assert_err("does not exist", "--cert", "nonexistent")
 
     def test_auth(self):
         p = self.assert_noerr("--nonanonymous")
@@ -122,7 +109,7 @@ class TestProcessProxyOptions:
 
         p = self.assert_noerr("--htpasswd", tutils.test_data.path("data/htpasswd"))
         assert p.authenticator
-        self.assert_err("invalid htpasswd file", "--htpasswd", tutils.test_data.path("data/htpasswd.invalid"))
+        self.assert_err("malformed htpasswd file", "--htpasswd", tutils.test_data.path("data/htpasswd.invalid"))
 
         p = self.assert_noerr("--singleuser", "test:test")
         assert p.authenticator
@@ -130,16 +117,31 @@ class TestProcessProxyOptions:
 
 
 class TestProxyServer:
+    @tutils.SkipWindows  # binding to 0.0.0.0:1 works without special permissions on Windows
     def test_err(self):
-        parser = argparse.ArgumentParser()
-        cmdline.common_options(parser)
-        opts = parser.parse_args(args=[])
-        tutils.raises("error starting proxy server", proxy.ProxyServer, opts, 1)
+        conf = ProxyConfig(
+            port=1
+        )
+        tutils.raises("error starting proxy server", ProxyServer, conf)
+
+    def test_err_2(self):
+        conf = ProxyConfig(
+            host="invalidhost"
+        )
+        tutils.raises("error starting proxy server", ProxyServer, conf)
 
 
 class TestDummyServer:
     def test_simple(self):
-        d = proxy.DummyServer(None)
+        d = DummyServer(None)
         d.start_slave()
         d.shutdown()
 
+
+class TestConnectionHandler:
+    def test_fatal_error(self):
+        config = mock.Mock()
+        config.mode.get_upstream_server.side_effect = RuntimeError
+        c = ConnectionHandler(config, mock.MagicMock(), ("127.0.0.1", 8080), None, mock.MagicMock())
+        with tutils.capture_stderr(c.handle) as output:
+            assert "mitmproxy has crashed" in output

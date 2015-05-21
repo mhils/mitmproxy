@@ -1,5 +1,6 @@
 import json
 from libmproxy import utils
+from netlib import odict
 import tutils
 
 utils.CERT_SLEEP_TIME = 0
@@ -7,6 +8,10 @@ utils.CERT_SLEEP_TIME = 0
 
 def test_format_timestamp():
     assert utils.format_timestamp(utils.timestamp())
+
+
+def test_format_timestamp_with_milli():
+    assert utils.format_timestamp_with_milli(utils.timestamp())
 
 
 def test_isBin():
@@ -22,23 +27,10 @@ def test_isXml():
     assert utils.isXML("  \n<foo")
 
 
-def test_del_all():
-    d = dict(a=1, b=2, c=3)
-    utils.del_all(d, ["a", "x", "b"])
-    assert d.keys() == ["c"]
-
-
 def test_clean_hanging_newline():
     s = "foo\n"
     assert utils.clean_hanging_newline(s) == "foo"
     assert utils.clean_hanging_newline("foo") == "foo"
-
-
-def test_pretty_size():
-    assert utils.pretty_size(100) == "100B"
-    assert utils.pretty_size(1024) == "1kB"
-    assert utils.pretty_size(1024 + (1024/2.0)) == "1.5kB"
-    assert utils.pretty_size(1024*1024) == "1MB"
 
 
 def test_pkg_data():
@@ -56,43 +48,66 @@ def test_urldecode():
     s = "one=two&three=four"
     assert len(utils.urldecode(s)) == 2
 
+def test_multipartdecode():
+    boundary = 'somefancyboundary'
+    headers = odict.ODict([('content-type', ('multipart/form-data; boundary=%s' % boundary))])
+    content = "--{0}\n" \
+              "Content-Disposition: form-data; name=\"field1\"\n\n" \
+              "value1\n" \
+              "--{0}\n" \
+              "Content-Disposition: form-data; name=\"field2\"\n\n" \
+              "value2\n" \
+              "--{0}--".format(boundary)
+
+    form = utils.multipartdecode(headers, content)
+
+    assert len(form) == 2
+    assert form[0] == ('field1', 'value1')
+    assert form[1] == ('field2', 'value2')
+
+def test_pretty_duration():
+    assert utils.pretty_duration(0.00001) == "0ms"
+    assert utils.pretty_duration(0.0001) == "0ms"
+    assert utils.pretty_duration(0.001) == "1ms"
+    assert utils.pretty_duration(0.01) == "10ms"
+    assert utils.pretty_duration(0.1) == "100ms"
+    assert utils.pretty_duration(1) == "1.00s"
+    assert utils.pretty_duration(10) == "10.0s"
+    assert utils.pretty_duration(100) == "100s"
+    assert utils.pretty_duration(1000) == "1000s"
+    assert utils.pretty_duration(10000) == "10000s"
+    assert utils.pretty_duration(1.123) == "1.12s"
+    assert utils.pretty_duration(0.123) == "123ms"
 
 def test_LRUCache():
+    cache = utils.LRUCache(2)
     class Foo:
         ran = False
-        @utils.LRUCache(2)
-        def one(self, x):
+        def gen(self, x):
             self.ran = True
             return x
-
     f = Foo()
-    assert f.one(1) == 1
+
+    assert not f.ran
+    assert cache.get(f.gen, 1) == 1
     assert f.ran
     f.ran = False
-    assert f.one(1) == 1
+    assert cache.get(f.gen, 1) == 1
     assert not f.ran
 
     f.ran = False
-    assert f.one(1) == 1
+    assert cache.get(f.gen, 1) == 1
     assert not f.ran
-    assert f.one(2) == 2
-    assert f.one(3) == 3
+    assert cache.get(f.gen, 2) == 2
+    assert cache.get(f.gen, 3) == 3
     assert f.ran
 
     f.ran = False
-    assert f.one(1) == 1
+    assert cache.get(f.gen, 1) == 1
     assert f.ran
 
-    assert len(f._cached_one) == 2
-    assert len(f._cachelist_one) == 2
-
-
-def test_parse_proxy_spec():
-    assert not utils.parse_proxy_spec("")
-    assert utils.parse_proxy_spec("http://foo.com:88") == ("http", "foo.com", 88)
-    assert utils.parse_proxy_spec("http://foo.com") == ("http", "foo.com", 80)
-    assert not utils.parse_proxy_spec("foo.com")
-    assert not utils.parse_proxy_spec("http://")
+    assert len(cache.cacheList) == 2
+    assert len(cache.cache) == 2
 
 
 def test_unparse_url():
@@ -115,7 +130,7 @@ def test_parse_size():
 def test_parse_content_type():
     p = utils.parse_content_type
     assert p("text/html") == ("text", "html", {})
-    assert p("text") == None
+    assert p("text") is None
 
     v = p("text/html; charset=UTF-8")
     assert v == ('text', 'html', {'charset': 'UTF-8'})
@@ -126,5 +141,4 @@ def test_safe_subn():
 
 
 def test_urlencode():
-    assert utils.urlencode([('foo','bar')])
-
+    assert utils.urlencode([('foo', 'bar')])

@@ -1,6 +1,9 @@
-import os
+import os, sys, mock, gc
+from os.path import normpath
+import mock_urwid
 from libmproxy import console
 from libmproxy.console import common
+
 import tutils
 
 class TestConsoleState:
@@ -12,7 +15,7 @@ class TestConsoleState:
         """
         c = console.ConsoleState()
         f = self._add_request(c)
-        assert f.request in c._flow_map
+        assert f in c.flows
         assert c.get_focus() == (f, 0)
 
     def test_focus(self):
@@ -48,20 +51,20 @@ class TestConsoleState:
         assert c.get_focus() == (None, None)
 
     def _add_request(self, state):
-        r = tutils.treq()
-        return state.add_request(r)
+        f = tutils.tflow()
+        return state.add_flow(f)
 
     def _add_response(self, state):
         f = self._add_request(state)
-        r = tutils.tresp(f.request)
-        state.add_response(r)
+        f.response = tutils.tresp()
+        state.update_flow(f)
 
     def test_add_response(self):
         c = console.ConsoleState()
         f = self._add_request(c)
-        r = tutils.tresp(f.request)
+        f.response = tutils.tresp()
         c.focus = None
-        c.add_response(r)
+        c.update_flow(f)
 
     def test_focus_view(self):
         c = console.ConsoleState()
@@ -85,6 +88,7 @@ class TestConsoleState:
         assert len(c.flowsettings) == 1
         c.delete_flow(f)
         del f
+        gc.collect()
         assert len(c.flowsettings) == 0
 
 
@@ -98,51 +102,6 @@ def test_format_keyvals():
             (None, "dd"),
         ]
     )
-
-
-class TestPathCompleter:
-    def test_lookup_construction(self):
-        c = console._PathCompleter()
-        assert c.complete("/tm") == "/tmp/"
-        c.reset()
-
-        cd = tutils.test_data.path("completion")
-        ca = os.path.join(cd, "a")
-        assert c.complete(ca).endswith("/completion/aaa")
-        assert c.complete(ca).endswith("/completion/aab")
-        c.reset()
-        ca = os.path.join(cd, "aaa")
-        assert c.complete(ca).endswith("/completion/aaa")
-        assert c.complete(ca).endswith("/completion/aaa")
-        c.reset()
-        assert c.complete(cd).endswith("/completion/aaa")
-
-    def test_completion(self):
-        c = console._PathCompleter(True)
-        c.reset()
-        c.lookup = [
-            ("a", "x/a"),
-            ("aa", "x/aa"),
-        ]
-        assert c.complete("a") == "a"
-        assert c.final == "x/a"
-        assert c.complete("a") == "aa"
-        assert c.complete("a") == "a"
-
-        c = console._PathCompleter(True)
-        r = c.complete("l")
-        assert c.final.endswith(r)
-
-        c.reset()
-        assert c.complete("/nonexistent") == "/nonexistent"
-        assert c.final == "/nonexistent"
-        c.reset()
-        assert c.complete("~") != "~"
-
-        c.reset()
-        s = "thisisatotallynonexistantpathforsure"
-        assert c.complete(s) == s
-        assert c.final == s
 
 
 def test_options():

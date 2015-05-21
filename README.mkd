@@ -1,4 +1,8 @@
-[![Build Status](https://travis-ci.org/mitmproxy/mitmproxy.png)](https://travis-ci.org/mitmproxy/mitmproxy) [![Coverage Status](https://coveralls.io/repos/mitmproxy/mitmproxy/badge.png)](https://coveralls.io/r/mitmproxy/mitmproxy)
+[![Build Status](https://travis-ci.org/mitmproxy/mitmproxy.svg?branch=master)](https://travis-ci.org/mitmproxy/mitmproxy) [![Coverage Status](https://coveralls.io/repos/mitmproxy/mitmproxy/badge.svg?branch=master)](https://coveralls.io/r/mitmproxy/mitmproxy)
+[![Latest Version](https://pypip.in/version/mitmproxy/badge.svg?style=flat)](https://pypi.python.org/pypi/mitmproxy/)
+[![Supported Python versions](https://pypip.in/py_versions/mitmproxy/badge.svg?style=flat)](https://pypi.python.org/pypi/mitmproxy)
+[![Supported Python implementations](https://pypip.in/implementation/mitmproxy/badge.svg?style=flat)](https://pypi.python.org/pypi/mitmproxy/)
+
 
 __mitmproxy__ is an interactive, SSL-capable man-in-the-middle proxy for HTTP
 with a console interface.
@@ -11,6 +15,8 @@ Documentation, tutorials and distribution packages can be found on the
 mitmproxy.org website:
 
 [mitmproxy.org](http://mitmproxy.org).
+
+You can find complete directions for installing mitmproxy [here](http://mitmproxy.org/doc/install.html).
 
 
 Features
@@ -26,39 +32,68 @@ Features
 - SSL certificates for interception are generated on the fly.
 - And much, much more.
 
+__mitmproxy__ is tested and developed on OSX, Linux and OpenBSD. On Windows,
+only mitmdump is supported, which does not have a graphical user interface.
 
-Requirements
-------------
-
-* [Python](http://www.python.org) 2.7.x.
-* [netlib](http://pypi.python.org/pypi/netlib), version matching mitmproxy.
-* [PyOpenSSL](http://pypi.python.org/pypi/pyOpenSSL) 0.13 or newer.
-* [pyasn1](http://pypi.python.org/pypi/pyasn1) 0.1.2 or newer.
-* [urwid](http://excess.org/urwid/) version 1.1 or newer.
-* [PIL](http://www.pythonware.com/products/pil/) version 1.1 or newer.
-* [lxml](http://lxml.de/) version 2.3 or newer.
-* [flask](http://flask.pocoo.org/) version 0.9 or newer.
-
-Optional, for extended content decoding:
-
-* [PyAMF](http://www.pyamf.org/) version 0.6.1 or newer.
-* [protobuf](https://code.google.com/p/protobuf/) version 2.5.0 or newer.
-
-__mitmproxy__ is tested and developed on OSX, Linux and OpenBSD. Windows is not
-officially supported at the moment.
 
 
 Hacking
 -------
 
-The following components are needed if you plan to hack on mitmproxy:
+To get started hacking on mitmproxy, make sure you have
+[Python](http://www.python.org) 2.7.x. with
+[virtualenv](https://virtualenv.pypa.io/en/latest/) installed (you can find
+installation instructions for virtualenv
+[here](https://virtualenv.pypa.io/en/latest/installation.html)). Then do the
+following:
 
-* The test suite uses the [nose](http://readthedocs.org/docs/nose/en/latest/) unit testing
-  framework and requires [pathod](http://pathod.org) and [flask](http://flask.pocoo.org/).
-* Rendering the documentation requires [countershape](http://github.com/cortesi/countershape).
+```
+$ git clone https://github.com/mitmproxy/mitmproxy.git
+$ git clone https://github.com/mitmproxy/netlib.git
+$ git clone https://github.com/mitmproxy/pathod.git
+$ cd mitmproxy
+$ ./dev
+```
 
-For convenience, all dependencies save countershape, can be installed from pypi to a virtualenv with 'pip install -r requirements.txt'.
+The *dev* script will create a virtualenv environment in a directory called
+"venv.mitmproxy", and install all of mitmproxy's development requirements, plus
+all optional modules. The primary mitmproxy components - mitmproxy, netlib and
+pathod - are all installed "editable", so any changes to the source in the git
+checkouts will be reflected live in the virtualenv.
+
+To confirm that you're up and running, activate the virtualenv, and run the
+mitmproxy test suite:
+
+```shell
+$ source ../venv.mitmproxy/bin/activate # ..\venv.mitmproxy\Scripts\activate.bat on Windows
+$ nosetests ./test
+```
+Note that the main executables for the project - **mitmdump**, **mitmproxy** and
+**mitmweb** - are all created within the virtualenv. After activating the
+virtualenv, they will be on your $PATH, and you can run them like any other
+command:
+
+```$ mitmdump --version```
+
+For convenience, the project includes an
+[autoenv](https://github.com/kennethreitz/autoenv) file
+([.env](https://github.com/mitmproxy/mitmproxy/blob/master/.env)) that
+auto-activates the virtualenv when you cd into the mitmproxy directory.
+
+
+### Testing
+
+If you've followed the procedure above, you already have all the development
+requirements installed, and you can simply run the test suite:
+
+```nosetests ./test```
 
 Please ensure that all patches are accompanied by matching changes in the test
 suite. The project maintains 100% test coverage.
 
+
+### Docs
+
+Rendering the documentation requires [countershape](http://github.com/cortesi/countershape). After installation, you can render the documentation to the doc like this:
+
+`cshape doc-src doc`

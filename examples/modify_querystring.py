@@ -4,4 +4,3 @@ def request(context, flow):
     if q:
         q["mitmproxy"] = ["rocks"]
         flow.request.set_query(q)
-

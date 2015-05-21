@@ -1,6 +1,9 @@
 import cStringIO
+from netlib import odict
 from libmproxy import filt, flow
-
+from libmproxy.protocol import http
+from libmproxy.protocol.primitives import Error
+import tutils
 
 class TestParsing:
     def _dump(self, x):
@@ -72,41 +75,37 @@ class TestParsing:
 
 class TestMatching:
     def req(self):
-        conn = flow.ClientConnect(("one", 2222))
-        headers = flow.ODictCaseless()
+        headers = odict.ODictCaseless()
         headers["header"] = ["qvalue"]
-        req = flow.Request(
-                    conn,
-                    (1, 1),
-                    "host",
-                    80,
-                    "http",
-                    "GET",
-                    "/path",
-                    headers,
-                    "content_request"
+        req = http.HTTPRequest(
+            "absolute",
+            "GET",
+            "http",
+            "host",
+            80,
+            "/path",
+            (1, 1),
+            headers,
+            "content_request",
+            None,
+            None
         )
-        return flow.Flow(req)
+        f = http.HTTPFlow(tutils.tclient_conn(), None)
+        f.request = req
+        return f
 
     def resp(self):
         f = self.req()
 
-        headers = flow.ODictCaseless()
+        headers = odict.ODictCaseless()
         headers["header_response"] = ["svalue"]
-        f.response = flow.Response(
-                    f.request,
-                    (1, 1),
-                    200,
-                    "message",
-                    headers,
-                    "content_response",
-                    None
-                )
+        f.response = http.HTTPResponse((1, 1), 200, "OK", headers, "content_response", None, None)
+
         return f
 
     def err(self):
         f = self.req()
-        f.error = flow.Error(f.request, "msg")
+        f.error = Error("msg")
         return f
 
     def q(self, q, o):
@@ -173,9 +172,7 @@ class TestMatching:
         assert self.q("~hs 'header_response: svalue'", s)
         assert not self.q("~hs 'header: qvalue'", q)
 
-    def test_body(self):
-        q = self.req()
-        s = self.resp()
+    def match_body(self, q, s):
         assert not self.q("~b nonexistent", q)
         assert self.q("~b content", q)
         assert self.q("~b response", s)
@@ -191,6 +188,16 @@ class TestMatching:
         assert not self.q("~bs nomatch", s)
         assert not self.q("~bs response", q)
         assert self.q("~bs response", s)
+
+    def test_body(self):
+        q = self.req()
+        s = self.resp()
+        self.match_body(q, s)
+
+        q.request.encode("gzip")
+        s.request.encode("gzip")
+        s.response.encode("gzip")
+        self.match_body(q, s)
 
     def test_method(self):
         q = self.req()
@@ -247,4 +254,3 @@ class TestMatching:
         assert self.q("! ~c 201", s)
         assert self.q("!~c 201 !~c 202", s)
         assert not self.q("!~c 201 !~c 200", s)
-

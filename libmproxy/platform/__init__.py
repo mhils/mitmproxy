@@ -1,9 +1,16 @@
 import sys
 
 resolver = None
+
 if sys.platform == "linux2":
-    import linux
+    from . import linux
     resolver = linux.Resolver
 elif sys.platform == "darwin":
-    import osx
+    from . import osx
     resolver = osx.Resolver
+elif sys.platform.startswith("freebsd"):
+    from . import osx
+    resolver = osx.Resolver
+elif sys.platform == "win32":
+    from . import windows
+    resolver = windows.Resolver

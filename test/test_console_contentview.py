@@ -1,4 +1,10 @@
+import os
+from nose.plugins.skip import SkipTest
+if os.name == "nt":
+    raise SkipTest("Skipped on Windows.")
 import sys
+
+from netlib import odict
 import libmproxy.console.contentview as cv
 from libmproxy import utils, flow, encoding
 import tutils
@@ -7,6 +13,11 @@ try:
     import pyamf
 except ImportError:
     pyamf = None
+
+try:
+    import cssutils
+except:
+    cssutils = None
 
 
 class TestContentView:
@@ -20,14 +31,14 @@ class TestContentView:
     def test_view_auto(self):
         v = cv.ViewAuto()
         f = v(
-                flow.ODictCaseless(),
+                odict.ODictCaseless(),
                 "foo",
                 1000
               )
         assert f[0] == "Raw"
 
         f = v(
-                flow.ODictCaseless(
+                odict.ODictCaseless(
                     [["content-type", "text/html"]],
                 ),
                 "<html></html>",
@@ -36,7 +47,7 @@ class TestContentView:
         assert f[0] == "HTML"
 
         f = v(
-                flow.ODictCaseless(
+                odict.ODictCaseless(
                     [["content-type", "text/flibble"]],
                 ),
                 "foo",
@@ -45,7 +56,7 @@ class TestContentView:
         assert f[0] == "Raw"
 
         f = v(
-                flow.ODictCaseless(
+                odict.ODictCaseless(
                     [["content-type", "text/flibble"]],
                 ),
                 "<xml></xml>",
@@ -107,6 +118,26 @@ class TestContentView:
         assert v([], "[1, 2, 3", 100)
         assert v([], "function(a){[1, 2, 3]}", 100)
 
+    def test_view_css(self):
+        v = cv.ViewCSS()
+
+        with open(tutils.test_data.path('data/1.css'), 'r') as fp:
+            fixture_1 = fp.read()
+
+        result = v([], 'a', 100)
+
+        if cssutils:
+            assert len(result[1]) == 0
+        else:
+            assert len(result[1]) == 1
+
+        result = v([], fixture_1, 100)
+
+        if cssutils:
+            assert len(result[1]) > 1
+        else:
+            assert len(result[1]) == 1
+
     def test_view_hex(self):
         v = cv.ViewHex()
         assert v([], "foo", 1000)
@@ -136,20 +167,20 @@ Content-Disposition: form-data; name="submit-name"
 Larry
 --AaB03x
         """.strip()
-        h = flow.ODictCaseless(
+        h = odict.ODictCaseless(
             [("Content-Type", "multipart/form-data; boundary=AaB03x")]
         )
         assert view(h, v, 1000)
 
-        h = flow.ODictCaseless()
+        h = odict.ODictCaseless()
         assert not view(h, v, 1000)
 
-        h = flow.ODictCaseless(
+        h = odict.ODictCaseless(
             [("Content-Type", "multipart/form-data")]
         )
         assert not view(h, v, 1000)
 
-        h = flow.ODictCaseless(
+        h = odict.ODictCaseless(
             [("Content-Type", "unparseable")]
         )
         assert not view(h, v, 1000)
@@ -160,7 +191,8 @@ Larry
                 [["content-type", "application/json"]],
                 "[1, 2, 3]",
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert "Raw" in r[0]
 
@@ -169,7 +201,8 @@ Larry
                 [["content-type", "application/json"]],
                 "[1, 2, 3]",
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert r[0] == "JSON"
 
@@ -178,7 +211,8 @@ Larry
                 [["content-type", "application/json"]],
                 "[1, 2",
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert "Raw" in r[0]
 
@@ -187,7 +221,8 @@ Larry
                 [],
                 "[1, 2",
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert "Raw" in r[0]
 
@@ -200,7 +235,8 @@ Larry
                 ],
                 encoding.encode('gzip', "[1, 2, 3]"),
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert "decoded gzip" in r[0]
         assert "JSON" in r[0]
@@ -213,7 +249,8 @@ Larry
                 ],
                 encoding.encode('gzip', "[1, 2, 3]"),
                 1000,
-                lambda x: None
+                lambda x, l: None,
+                False
               )
         assert "decoded gzip" in r[0]
         assert "Raw" in r[0]

@@ -1,15 +1,25 @@
 language: python
+sudo: false
 python:
   - "2.7"
+  - pypy
 # command to install dependencies, e.g. pip install -r requirements.txt --use-mirrors
-install: 
-  - "pip install coveralls --use-mirrors"
-  - "pip install nose-cov --use-mirrors"
-  - "pip install -r requirements.txt --use-mirrors"
-  - "pip install --upgrade git+https://github.com/mitmproxy/netlib.git"
-  - "pip install --upgrade git+https://github.com/mitmproxy/pathod.git"
+install:
+  - "pip install --src . -r requirements.txt"
 # command to run tests, e.g. python setup.py test
 script: 
   - "nosetests --with-cov --cov-report term-missing"
 after_success: 
   - coveralls
+notifications:
+  irc:
+    channels:
+      - "irc.oftc.net#mitmproxy"
+    on_success: change
+    on_failure: always
+cache:
+  directories:
+  - /home/travis/virtualenv/python2.7.9/lib/python2.7/site-packages
+  - /home/travis/virtualenv/python2.7.9/bin
+  - /home/travis/virtualenv/pypy-2.5.0/site-packages
+  - /home/travis/virtualenv/pypy-2.5.0/bin

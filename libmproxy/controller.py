@@ -1,7 +1,5 @@
+from __future__ import absolute_import
 import Queue, threading
-
-should_exit = False
-
 
 class DummyReply:
     """
@@ -36,31 +34,32 @@ class Reply:
 
 
 class Channel:
-    def __init__(self, q):
+    def __init__(self, q, should_exit):
         self.q = q
+        self.should_exit = should_exit
 
-    def ask(self, m):
+    def ask(self, mtype, m):
         """
             Decorate a message with a reply attribute, and send it to the
             master.  then wait for a response.
         """
         m.reply = Reply(m)
-        self.q.put(m)
-        while not should_exit:
+        self.q.put((mtype, m))
+        while not self.should_exit.is_set():
             try:
                 # The timeout is here so we can handle a should_exit event.
                 g = m.reply.q.get(timeout=0.5)
-            except Queue.Empty: # pragma: nocover
+            except Queue.Empty:  # pragma: nocover
                 continue
             return g
 
-    def tell(self, m):
+    def tell(self, mtype, m):
         """
             Decorate a message with a dummy reply attribute, send it to the
             master, then return immediately.
         """
         m.reply = DummyReply()
-        self.q.put(m)
+        self.q.put((mtype, m))
 
 
 class Slave(threading.Thread):
@@ -72,12 +71,13 @@ class Slave(threading.Thread):
         self.channel, self.server = channel, server
         self.server.set_channel(channel)
         threading.Thread.__init__(self)
+        self.name = "SlaveThread (%s:%s)" % (self.server.address.host, self.server.address.port)
 
     def run(self):
         self.server.serve_forever()
 
 
-class Master:
+class Master(object):
     """
         Masters get and respond to messages from slaves.
     """
@@ -87,8 +87,9 @@ class Master:
         """
         self.server = server
         self.masterq = Queue.Queue()
+        self.should_exit = threading.Event()
 
-    def tick(self, q):
+    def tick(self, q, timeout):
         changed = False
         try:
             # This endless loop runs until the 'Queue.Empty'
@@ -96,33 +97,34 @@ class Master:
             # the queue, this speeds up every request by 0.1 seconds,
             # because get_input(..) function is not blocking.
             while True:
-                # Small timeout to prevent pegging the CPU
-                msg = q.get(timeout=0.01)
-                self.handle(msg)
+                msg = q.get(timeout=timeout)
+                self.handle(*msg)
                 changed = True
         except Queue.Empty:
             pass
         return changed
 
     def run(self):
-        global should_exit
-        should_exit = False
-        self.server.start_slave(Slave, Channel(self.masterq))
-        while not should_exit:
-            self.tick(self.masterq)
+        self.should_exit.clear()
+        self.server.start_slave(Slave, Channel(self.masterq, self.should_exit))
+        while not self.should_exit.is_set():
+
+            # Don't choose a very small timeout in Python 2:
+            # https://github.com/mitmproxy/mitmproxy/issues/443
+            # TODO: Lower the timeout value if we move to Python 3.
+            self.tick(self.masterq, 0.1)
         self.shutdown()
 
-    def handle(self, msg):
-        c = "handle_" + msg.__class__.__name__.lower()
+    def handle(self, mtype, obj):
+        c = "handle_" + mtype
         m = getattr(self, c, None)
         if m:
-            m(msg)
+            m(obj)
         else:
-            msg.reply()
+            obj.reply()
 
     def shutdown(self):
-        global should_exit
-        if not should_exit:
-            should_exit = True
+        if not self.should_exit.is_set():
+            self.should_exit.set()
             if self.server:
                 self.server.shutdown()

@@ -1,3 +1,5 @@
+import sys
+
 
 def lookup(address, port, s):
     """
@@ -6,11 +8,17 @@ def lookup(address, port, s):
 
         Returns an (address, port) tuple, or None.
     """
-    spec = "%s:%s"%(address, port)
+    spec = "%s:%s" % (address, port)
     for i in s.split("\n"):
         if "ESTABLISHED:ESTABLISHED" in i and spec in i:
             s = i.split()
             if len(s) > 4:
-                s = s[4].split(":")
+                if sys.platform.startswith("freebsd"):
+                    # strip parentheses for FreeBSD pfctl
+                    s = s[3][1:-1].split(":")
+                else:
+                    s = s[4].split(":")
+
                 if len(s) == 2:
                     return s[0], int(s[1])
+    raise RuntimeError("Could not resolve original destination.")
