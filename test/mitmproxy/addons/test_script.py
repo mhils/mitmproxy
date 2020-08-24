@@ -19,19 +19,19 @@ script.ReloadInterval = 0.1
 @pytest.mark.asyncio
 async def test_load_script(tdata):
     with taddons.context() as tctx:
-        ns = script.load_script(
+        ns = script.load_script_module(
             tdata.path(
                 "mitmproxy/data/addonscripts/recorder/recorder.py"
             )
         )
         assert ns.addons
 
-        script.load_script(
+        script.load_script_module(
             "nonexistent"
         )
         assert await tctx.master.await_log("No such file or directory")
 
-        script.load_script(
+        script.load_script_module(
             tdata.path(
                 "mitmproxy/data/addonscripts/recorder/error.py"
             )
@@ -45,13 +45,13 @@ def test_load_fullname(tdata):
     This only succeeds if they get assigned different basenames.
 
     """
-    ns = script.load_script(
+    ns = script.load_script_module(
         tdata.path(
             "mitmproxy/data/addonscripts/addon.py"
         )
     )
     assert ns.addons
-    ns2 = script.load_script(
+    ns2 = script.load_script_module(
         tdata.path(
             "mitmproxy/data/addonscripts/same_filename/addon.py"
         )
@@ -158,7 +158,7 @@ class TestScript:
             )
             tctx.master.addons.add(sc)
             await tctx.master.await_log("addon running")
-            assert sc.ns.event_log == [
+            assert sc.module.event_log == [
                 'scriptload', 'addonload', 'scriptconfigure', 'addonconfigure'
             ]
 
@@ -253,12 +253,10 @@ class TestScriptLoader:
     async def test_script_error_handler(self):
         path = "/sample/path/example.py"
         exc = SyntaxError
-        msg = "Error raised"
         tb = True
         with taddons.context() as tctx:
-            script.script_error_handler(path, exc, msg, tb)
+            script.async_script_error_handler(path, exc, tb)
             assert await tctx.master.await_log("/sample/path/example.py")
-            assert await tctx.master.await_log("Error raised")
             assert await tctx.master.await_log("lineno")
             assert await tctx.master.await_log("NoneType")
 
