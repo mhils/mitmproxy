@@ -6,7 +6,6 @@ import pytest
 
 from mitmproxy import flow
 from mitmproxy import flowfilter
-from mitmproxy.exceptions import ControlException
 from mitmproxy.http import Headers, Request, Response, HTTPFlow
 from mitmproxy.net.http.cookies import CookieAttrs
 from mitmproxy.test.tflow import tflow
@@ -698,9 +697,8 @@ class TestHTTPFlow:
 
     def test_kill(self):
         f = tflow()
-        with pytest.raises(ControlException):
-            f.intercept()
-            f.resume()
+        with pytest.raises(RuntimeError):
+            f.live = False
             f.kill()
 
         f = tflow()
@@ -713,16 +711,19 @@ class TestHTTPFlow:
     def test_intercept(self):
         f = tflow()
         f.intercept()
-        assert f.reply.state == "taken"
+        e = f._resume
+        assert e is not None
         f.intercept()
-        assert f.reply.state == "taken"
+        assert f._resume is e
 
     def test_resume(self):
         f = tflow()
         f.intercept()
-        assert f.reply.state == "taken"
+        e = f._resume
+        assert e is not None
         f.resume()
-        assert f.reply.state == "committed"
+        assert f._resume is None
+        assert e.is_set()
 
     def test_resume_duplicated(self):
         f = tflow()

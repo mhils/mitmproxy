@@ -1,9 +1,9 @@
+import asyncio
 import time
 import typing  # noqa
 import uuid
 
-from mitmproxy import controller, connection
-from mitmproxy import exceptions
+from mitmproxy import connection, exceptions
 from mitmproxy import stateobject
 from mitmproxy import version
 
@@ -95,6 +95,8 @@ class Flow(stateobject.StateObject):
      - a value of `response` indicates that the response to the client's request has been set by server replay.
     """
 
+    _resume: typing.Optional[asyncio.Event] = None
+
     def __init__(
         self,
         type: str,
@@ -110,7 +112,6 @@ class Flow(stateobject.StateObject):
 
         self.intercepted: bool = False
         self._backup: typing.Optional[Flow] = None
-        self.reply: typing.Optional[controller.Reply] = None
         self.marked: bool = False
         self.is_replay: typing.Optional[str] = None
         self.metadata: typing.Dict[str, typing.Any] = dict()
@@ -151,8 +152,6 @@ class Flow(stateobject.StateObject):
         """Make a copy of this flow."""
         f = super().copy()
         f.live = False
-        if self.reply is not None:
-            f.reply = controller.DummyReply()
         return f
 
     def modified(self):
@@ -183,9 +182,8 @@ class Flow(stateobject.StateObject):
     def killable(self):
         """*Read-only:* `True` if this flow can be killed, `False` otherwise."""
         return (
-            self.reply and
-            self.reply.state in {"start", "taken"} and
-            not (self.error and self.error.msg == Error.KILLED_MESSAGE)
+            self.live
+            and not (self.error and self.error.msg == Error.KILLED_MESSAGE)
         )
 
     def kill(self):
@@ -193,9 +191,9 @@ class Flow(stateobject.StateObject):
         Kill this flow. The current request/response will not be forwarded to its destination.
         """
         if not self.killable:
-            raise exceptions.ControlException("Flow is not killable.")
+            raise RuntimeError("Flow is not killable.")
         self.error = Error(Error.KILLED_MESSAGE)
-        self.intercepted = False
+        self.resume()
         self.live = False
 
     def intercept(self):
@@ -206,7 +204,7 @@ class Flow(stateobject.StateObject):
         if self.intercepted:
             return
         self.intercepted = True
-        self.reply.take()
+        self._resume = asyncio.Event()
 
     def resume(self):
         """
@@ -216,8 +214,9 @@ class Flow(stateobject.StateObject):
             return
         self.intercepted = False
         # If a flow is intercepted and then duplicated, the duplicated one is not taken.
-        if self.reply.state == "taken":
-            self.reply.commit()
+        if self._resume is not None:
+            self._resume.set()
+            self._resume = None
 
     @property
     def timestamp_start(self) -> float:

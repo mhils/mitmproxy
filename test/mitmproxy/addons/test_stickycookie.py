@@ -31,8 +31,6 @@ class TestStickyCookie:
             f = tflow.tflow(resp=True)
             f.response.headers["set-cookie"] = "foo=bar"
             sc.request(f)
-
-            f.reply.acked = False
             sc.response(f)
 
             assert sc.jar

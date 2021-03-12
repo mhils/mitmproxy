@@ -56,8 +56,8 @@ def test_command():
         tctx.master.addons.add(TAddon("test"))
         assert tctx.master.commands.execute("test.command") == "here"
 
-
-def test_halt():
+@pytest.mark.asyncio
+async def test_halt():
     o = options.Options()
     m = master.Master(o)
     a = addonmanager.AddonManager(m)
@@ -67,11 +67,11 @@ def test_halt():
     a.add(end)
 
     assert not end.running_called
-    a.trigger(hooks.RunningHook())
+    await a.trigger_async(hooks.RunningHook())
     assert not end.running_called
 
-    a.remove(halt)
-    a.trigger(hooks.RunningHook())
+    await a.remove_async(halt)
+    await a.trigger_async(hooks.RunningHook())
     assert end.running_called
 
 
@@ -85,7 +85,7 @@ async def test_lifecycle():
     with pytest.raises(exceptions.AddonManagerError):
         a.add(TAddon("one"))
     with pytest.raises(exceptions.AddonManagerError):
-        a.remove(TAddon("nonexistent"))
+        await a.remove_async(TAddon("nonexistent"))
 
     f = tflow.tflow()
     await a.handle_lifecycle(HttpRequestHook(f))
@@ -135,17 +135,17 @@ async def test_simple():
 
         a.add(TAddon("one"))
 
-        a.trigger("nonexistent")
+        await a.trigger_async("nonexistent")
         await tctx.master.await_log("AssertionError")
 
         f = tflow.tflow()
-        a.trigger(hooks.RunningHook())
-        a.trigger(HttpResponseHook(f))
+        await a.trigger(hooks.RunningHook())
+        await a.trigger(HttpResponseHook(f))
         await tctx.master.await_log("not callable")
 
         tctx.master.clear()
         a.get("one").response = addons
-        a.trigger(HttpResponseHook(f))
+        await a.trigger(HttpResponseHook(f))
         with pytest.raises(AssertionError):
             await tctx.master.await_log("not callable", timeout=0.01)
 
@@ -154,7 +154,7 @@ async def test_simple():
 
         ta = TAddon("one")
         a.add(ta)
-        a.trigger(hooks.RunningHook())
+        await a.trigger(hooks.RunningHook())
         assert ta.running_called
 
         assert ta in a
@@ -168,7 +168,8 @@ def test_load_option():
     assert "custom_option" in m.options._options
 
 
-def test_nesting():
+@pytest.mark.asyncio
+async def test_nesting():
     o = options.Options()
     m = master.Master(o)
     a = addonmanager.AddonManager(m)
@@ -188,13 +189,13 @@ def test_nesting():
     assert a.get("three")
     assert a.get("four")
 
-    a.trigger(hooks.RunningHook())
+    await a.trigger_async(hooks.RunningHook())
     assert a.get("one").running_called
     assert a.get("two").running_called
     assert a.get("three").running_called
     assert a.get("four").running_called
 
-    a.remove(a.get("three"))
+    await a.remove_async(a.get("three"))
     assert not a.get("three")
     assert not a.get("four")
 

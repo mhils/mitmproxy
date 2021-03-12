@@ -18,14 +18,15 @@ def test_set():
             tctx.command(sa.set, "nonexistent")
 
 
-def test_resume():
+@pytest.mark.asyncio
+async def test_resume():
     sa = core.Core()
     with taddons.context(loadcore=False):
         f = tflow.tflow()
-        assert not sa.resume([f])
+        assert not await sa.resume([f])
         f.intercept()
-        sa.resume([f])
-        assert not f.reply.state == "taken"
+        await sa.resume([f])
+        assert not f.intercepted
 
 
 def test_mark():

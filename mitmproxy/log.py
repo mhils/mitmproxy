@@ -59,8 +59,8 @@ class Log:
         self(txt, "error")
 
     def __call__(self, text, level="info"):
-        asyncio.get_event_loop().call_soon(
-            self.master.addons.trigger, AddLogHook(LogEntry(text, level)),
+        asyncio.get_event_loop().create_task(
+            self.master.addons.trigger_async(AddLogHook(LogEntry(text, level)))
         )
 
 

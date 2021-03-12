@@ -29,10 +29,6 @@ class FlowReadException(MitmproxyException):
     pass
 
 
-class ControlException(MitmproxyException):
-    pass
-
-
 class CommandError(Exception):
     pass
 

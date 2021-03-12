@@ -10,7 +10,6 @@ from mitmproxy import exceptions
 from mitmproxy import flow
 from mitmproxy import http
 from mitmproxy import io
-from mitmproxy.addons.proxyserver import AsyncReply
 from mitmproxy.hooks import UpdateHook
 from mitmproxy.net import server_spec
 from mitmproxy.options import Options
@@ -88,9 +87,7 @@ class ReplayHandler(server.ConnectionHandler):
 
     async def handle_hook(self, hook: commands.StartHook) -> None:
         data, = hook.args()
-        data.reply = AsyncReply(data)
         await ctx.master.addons.handle_lifecycle(hook)
-        await data.reply.done.wait()
         if isinstance(hook, (layers.http.HttpResponseHook, layers.http.HttpErrorHook)):
             if self.transports:
                 # close server connections
@@ -173,7 +170,7 @@ class ClientPlayback:
         return self.queue.qsize() + int(bool(self.inflight))
 
     @command.command("replay.client.stop")
-    def stop_replay(self) -> None:
+    async def stop_replay(self) -> None:
         """
             Clear the replay queue.
         """
@@ -188,11 +185,11 @@ class ClientPlayback:
                 f.revert()
                 updated.append(f)
 
-        ctx.master.addons.trigger(UpdateHook(updated))
+        await ctx.master.addons.trigger(UpdateHook(updated))
         ctx.log.alert("Client replay queue cleared.")
 
     @command.command("replay.client")
-    def start_replay(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def start_replay(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Add flows to the replay queue, skipping flows that can't be replayed.
         """
@@ -212,7 +209,7 @@ class ClientPlayback:
             http_flow.error = None
             self.queue.put_nowait(http_flow)
             updated.append(http_flow)
-        ctx.master.addons.trigger(UpdateHook(updated))
+        await ctx.master.addons.trigger(UpdateHook(updated))
 
     @command.command("replay.client.file")
     def load_file(self, path: mitmproxy.types.Path) -> None:

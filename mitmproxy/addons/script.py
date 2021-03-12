@@ -92,14 +92,14 @@ class Script:
     def addons(self):
         return [self.ns] if self.ns else []
 
-    def loadscript(self):
+    async def loadscript(self):
         ctx.log.info("Loading script %s" % self.path)
         if self.ns:
             ctx.master.addons.remove(self.ns)
         self.ns = None
         with addonmanager.safecall():
             ns = load_script(self.fullpath)
-            ctx.master.addons.register(ns)
+            await ctx.master.addons.register(ns)
             self.ns = ns
         if self.ns:
             # We're already running, so we have to explicitly register and
@@ -148,7 +148,7 @@ class ScriptLoader:
         self.is_running = True
 
     @command.command("script.run")
-    def script_run(self, flows: typing.Sequence[flow.Flow], path: mtypes.Path) -> None:
+    async def script_run(self, flows: typing.Sequence[flow.Flow], path: mtypes.Path) -> None:
         """
             Run a script on the specified flows. The script is configured with
             the current options and all lifecycle events for each flow are
@@ -160,16 +160,16 @@ class ScriptLoader:
         mod = load_script(path)
         if mod:
             with addonmanager.safecall():
-                ctx.master.addons.invoke_addon(mod, hooks.RunningHook())
-                ctx.master.addons.invoke_addon(
+                await ctx.master.addons.invoke_addon(mod, hooks.RunningHook())
+                await ctx.master.addons.invoke_addon(
                     mod,
                     hooks.ConfigureHook(ctx.options.keys()),
                 )
                 for f in flows:
                     for evt in eventsequence.iterate(f):
-                        ctx.master.addons.invoke_addon(mod, evt)
+                        await ctx.master.addons.invoke_addon(mod, evt)
 
-    def configure(self, updated):
+    async def configure(self, updated):
         if "scripts" in updated:
             for s in ctx.options.scripts:
                 if ctx.options.scripts.count(s) > 1:
@@ -204,8 +204,8 @@ class ScriptLoader:
             self.addons = ordered
 
             for s in newscripts:
-                ctx.master.addons.register(s)
+                await ctx.master.addons.register(s)
                 if self.is_running:
                     # If we're already running, we configure and tell the addon
                     # we're up and running.
-                    ctx.master.addons.invoke_addon(s, hooks.RunningHook())
+                    await ctx.master.addons.invoke_addon(s, hooks.RunningHook())

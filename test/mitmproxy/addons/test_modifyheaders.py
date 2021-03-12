@@ -126,23 +126,6 @@ class TestModifyHeaders:
             mh.request(f)
             assert "Definitely not Mozilla ;)" == f.request.headers["user-agent"]
 
-    @pytest.mark.parametrize("take", [True, False])
-    def test_taken(self, take):
-        mh = ModifyHeaders()
-        with taddons.context(mh) as tctx:
-            tctx.configure(mh, modify_headers=["/content-length/42"])
-            f = tflow.tflow()
-            if take:
-                f.reply.take()
-            mh.request(f)
-            assert (f.request.headers["content-length"] == "42") ^ take
-
-            f = tflow.tflow(resp=True)
-            if take:
-                f.reply.take()
-            mh.response(f)
-            assert (f.response.headers["content-length"] == "42") ^ take
-
 
 class TestModifyHeadersFile:
     def test_simple(self, tmpdir):

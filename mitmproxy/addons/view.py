@@ -368,7 +368,7 @@ class View(collections.abc.Sequence):
         return self.settings[flow].get(key, default)
 
     @command.command("view.settings.setval.toggle")
-    def setvalue_toggle(
+    async def setvalue_toggle(
         self,
         flows: typing.Sequence[mitmproxy.flow.Flow],
         key: str
@@ -382,7 +382,7 @@ class View(collections.abc.Sequence):
             current = self.settings[f].get("key", "false")
             self.settings[f][key] = "false" if current == "true" else "true"
             updated.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
 
     @command.command("view.settings.setval")
     def setvalue(
@@ -397,7 +397,7 @@ class View(collections.abc.Sequence):
         for f in flows:
             self.settings[f][key] = value
             updated.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
 
     # Flows
     @command.command("view.flows.duplicate")

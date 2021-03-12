@@ -2,34 +2,11 @@ import asyncio
 import warnings
 from typing import Optional
 
-from mitmproxy import controller, ctx, flow, log, master, options, platform
+from mitmproxy import ctx, flow, log, master, options, platform
 from mitmproxy.flow import Error
 from mitmproxy.proxy import commands
 from mitmproxy.proxy import server
 from mitmproxy.utils import asyncio_utils, human
-
-
-class AsyncReply(controller.Reply):
-    """
-    controller.Reply.q.get() is blocking, which we definitely want to avoid in a coroutine.
-    This stub adds a .done asyncio.Event() that can be used instead.
-    """
-
-    def __init__(self, *args):
-        self.done = asyncio.Event()
-        self.loop = asyncio.get_event_loop()
-        super().__init__(*args)
-
-    def commit(self):
-        super().commit()
-        try:
-            self.loop.call_soon_threadsafe(lambda: self.done.set())
-        except RuntimeError:  # pragma: no cover
-            pass  # event loop may already be closed.
-
-    def kill(self, force=False):  # pragma: no cover
-        warnings.warn("reply.kill() is deprecated, set the error attribute instead.", DeprecationWarning, stacklevel=2)
-        self.obj.error = flow.Error(Error.KILLED_MESSAGE)
 
 
 class ProxyConnectionHandler(server.StreamConnectionHandler):
@@ -44,14 +21,10 @@ class ProxyConnectionHandler(server.StreamConnectionHandler):
         with self.timeout_watchdog.disarm():
             # We currently only support single-argument hooks.
             data, = hook.args()
-            data.reply = AsyncReply(data)
             await self.master.addons.handle_lifecycle(hook)
-            await data.reply.done.wait()
-            data.reply = None
 
     def log(self, message: str, level: str = "info") -> None:
         x = log.LogEntry(self.log_prefix + message, level)
-        x.reply = controller.DummyReply()  # type: ignore
         asyncio_utils.create_task(
             self.master.addons.handle_lifecycle(log.AddLogHook(x)),
             name="ProxyConnectionHandler.log"

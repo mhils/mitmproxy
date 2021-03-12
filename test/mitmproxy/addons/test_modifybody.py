@@ -33,25 +33,6 @@ class TestModifyBody:
             mb.response(f)
             assert f.response.content == b"bar"
 
-    @pytest.mark.parametrize("take", [True, False])
-    def test_taken(self, take):
-        mb = modifybody.ModifyBody()
-        with taddons.context(mb) as tctx:
-            tctx.configure(mb, modify_body=["/foo/bar"])
-            f = tflow.tflow()
-            f.request.content = b"foo"
-            if take:
-                f.reply.take()
-            mb.request(f)
-            assert (f.request.content == b"bar") ^ take
-
-            f = tflow.tflow(resp=True)
-            f.response.content = b"foo"
-            if take:
-                f.reply.take()
-            mb.response(f)
-            assert (f.response.content == b"bar") ^ take
-
     def test_order(self):
         mb = modifybody.ModifyBody()
         with taddons.context(mb) as tctx:

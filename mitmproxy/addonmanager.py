@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import pprint
 import sys
@@ -6,10 +7,9 @@ import types
 import typing
 from dataclasses import dataclass
 
-from mitmproxy import controller
-from mitmproxy import hooks
 from mitmproxy import exceptions
 from mitmproxy import flow
+from mitmproxy import hooks
 from . import ctx
 
 
@@ -62,12 +62,12 @@ class Loader:
         self.master = master
 
     def add_option(
-            self,
-            name: str,
-            typespec: type,
-            default: typing.Any,
-            help: str,
-            choices: typing.Optional[typing.Sequence[str]] = None
+        self,
+        name: str,
+        typespec: type,
+        default: typing.Any,
+        help: str,
+        choices: typing.Optional[typing.Sequence[str]] = None
     ) -> None:
         """
             Add an option to mitmproxy.
@@ -79,11 +79,11 @@ class Loader:
         if name in self.master.options:
             existing = self.master.options._options[name]
             same_signature = (
-                    existing.name == name and
-                    existing.typespec == typespec and
-                    existing.default == default and
-                    existing.help == help and
-                    existing.choices == choices
+                existing.name == name and
+                existing.typespec == typespec and
+                existing.default == default and
+                existing.help == help and
+                existing.choices == choices
             )
             if same_signature:
                 return
@@ -134,14 +134,14 @@ class AddonManager:
         master.options.changed.connect(self._configure_all)
 
     def _configure_all(self, options, updated):
-        self.trigger(hooks.ConfigureHook(updated))
+        self.trigger_sync(hooks.ConfigureHook(updated))
 
     def clear(self):
         """
             Remove all addons.
         """
         for a in self.chain:
-            self.invoke_addon(a, hooks.DoneHook())
+            self.invoke_addon_sync(a, hooks.DoneHook())
         self.lookup = {}
         self.chain = []
 
@@ -181,7 +181,7 @@ class AddonManager:
                     "An addon called '%s' already exists." % name
                 )
         l = Loader(self.master)
-        self.invoke_addon(addon, LoadHook(l))
+        self.invoke_addon_sync(addon, LoadHook(l))
         for a in traverse([addon]):
             name = _get_name(a)
             self.lookup[name] = a
@@ -198,7 +198,7 @@ class AddonManager:
         for i in addons:
             self.chain.append(self.register(i))
 
-    def remove(self, addon):
+    async def remove_async(self, addon):
         """
             Remove an addon and all its sub-addons.
 
@@ -212,7 +212,7 @@ class AddonManager:
                 raise exceptions.AddonManagerError("No such addon: %s" % n)
             self.chain = [i for i in self.chain if i is not a]
             del self.lookup[_get_name(a)]
-        self.invoke_addon(addon, hooks.DoneHook())
+        await self.invoke_addon_async(addon, hooks.DoneHook())
 
     def __len__(self):
         return len(self.chain)
@@ -229,30 +229,12 @@ class AddonManager:
             Handle a lifecycle event.
         """
         message = event.args()[0]
-        if not hasattr(message, "reply"):  # pragma: no cover
-            raise exceptions.ControlException(
-                "Message %s has no reply attribute" % message
-            )
-
-        # We can use DummyReply objects multiple times. We only clear them up on
-        # the next handler so that we can access value and state in the
-        # meantime.
-        if isinstance(message.reply, controller.DummyReply):
-            message.reply.reset()
-
-        self.trigger(event)
-
-        if message.reply.state == "start":
-            message.reply.take()
-            message.reply.commit()
-
-            if isinstance(message.reply, controller.DummyReply):
-                message.reply.mark_reset()
+        await self.trigger_async(event)
 
         if isinstance(message, flow.Flow):
-            self.trigger(hooks.UpdateHook([message]))
+            await self.trigger_async(hooks.UpdateHook([message]))
 
-    def invoke_addon(self, addon, event: hooks.Hook):
+    def _invoke_addon(self, addon, event: hooks.Hook):
         """
             Invoke an event on an addon and all its children.
         """
@@ -261,7 +243,9 @@ class AddonManager:
             func = getattr(a, event.name, None)
             if func:
                 if callable(func):
-                    func(*event.args())
+                    ret = func(*event.args())
+                    if asyncio.iscoroutine(ret):
+                        yield ret
                 elif isinstance(func, types.ModuleType):
                     # we gracefully exclude module imports with the same name as hooks.
                     # For example, a user may have "from mitmproxy import log" in an addon,
@@ -273,13 +257,35 @@ class AddonManager:
                         f"Addon handler {event.name} ({a}) not callable"
                     )
 
-    def trigger(self, event: hooks.Hook):
+    async def invoke_addon_async(self, addon, event: hooks.Hook):
+        for awaitable in self._invoke_addon(addon, event):
+            await awaitable
+
+    def invoke_addon_sync(self, addon, event: hooks.Hook):
+        for _ in self._invoke_addon(addon, event):
+            ctx.log.error(
+                f"Addon error: {addon}'s {event.name} returned an awaitable, "
+                f"but the event must be synchronous.'"
+            )
+
+    async def trigger_async(self, event: hooks.Hook):
         """
             Trigger an event across all addons.
         """
         for i in self.chain:
             try:
                 with safecall():
-                    self.invoke_addon(i, event)
+                    await self.invoke_addon_async(i, event)
+            except exceptions.AddonHalt:
+                return
+
+    def trigger_sync(self, event: hooks.Hook):
+        """
+            Trigger an event across all addons.
+        """
+        for i in self.chain:
+            try:
+                with safecall():
+                    self.invoke_addon_sync(i, event)
             except exceptions.AddonHalt:
                 return

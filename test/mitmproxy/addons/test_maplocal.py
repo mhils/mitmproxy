@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from mitmproxy import flow, http
 from mitmproxy.addons.maplocal import MapLocal, MapLocalSpec, file_candidates
 from mitmproxy.utils.spec import parse_spec
 from mitmproxy.test import taddons
@@ -181,6 +182,6 @@ class TestMapLocal:
             )
             f = tflow.tflow()
             f.request.url = b"https://example.org/images/foo.jpg"
-            f.reply.take()
+            f.error = flow.Error("wat")
             ml.request(f)
             assert not f.response

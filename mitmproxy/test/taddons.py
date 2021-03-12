@@ -14,10 +14,10 @@ class TestAddons(addonmanager.AddonManager):
     def __init__(self, master):
         super().__init__(master)
 
-    def trigger(self, event: hooks.Hook):
+    async def trigger_async(self, event: hooks.Hook):
         if isinstance(event, log.AddLogHook):
             self.master.logs.append(event.entry)
-        super().trigger(event)
+        await super().trigger_async(event)
 
 
 class RecordingMaster(mitmproxy.master.Master):
@@ -80,19 +80,16 @@ class context:
         return False
 
     @contextlib.contextmanager
-    def cycle(self, addon, f):
+    async def cycle_async(self, addon, f):
         """
             Cycles the flow through the events for the flow. Stops if a reply
             is taken (as in flow interception).
         """
-        f.reply._state = "start"
         for evt in eventsequence.iterate(f):
-            self.master.addons.invoke_addon(
+            await self.master.addons.invoke_addon_async(
                 addon,
                 evt
             )
-            if f.reply.state == "taken":
-                return
 
     def configure(self, addon, **kwargs):
         """
@@ -106,7 +103,7 @@ class context:
             if kwargs:
                 self.options.update(**kwargs)
             else:
-                self.master.addons.invoke_addon(addon, hooks.ConfigureHook(set()))
+                self.master.addons.invoke_addon_sync(addon, hooks.ConfigureHook(set()))
 
     def script(self, path):
         """

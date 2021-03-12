@@ -674,9 +674,6 @@ def format_flow(
             error_message=error_message,
         )
     elif isinstance(f, HTTPFlow):
-        intercepted = (
-                f.intercepted and not (f.reply and f.reply.state == "committed")
-        )
         response_content_length: typing.Optional[int]
         if f.response:
             if f.response.raw_content is not None:
@@ -721,7 +718,7 @@ def format_flow(
             request_http_version=f.request.http_version,
             request_timestamp=f.request.timestamp_start,
             request_is_push_promise='h2-pushed-stream' in f.metadata,
-            intercepted=intercepted,
+            intercepted=f.intercepted,
             response_code=response_code,
             response_reason=response_reason,
             response_content_length=response_content_length,

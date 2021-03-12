@@ -1,7 +1,6 @@
 import uuid
 
 from mitmproxy import connection
-from mitmproxy import controller
 from mitmproxy import flow
 from mitmproxy import http
 from mitmproxy import tcp
@@ -26,7 +25,6 @@ def ttcpflow(client_conn=True, server_conn=True, messages=True, err=None):
     f = tcp.TCPFlow(client_conn, server_conn)
     f.messages = messages
     f.error = err
-    f.reply = controller.DummyReply()
     return f
 
 
@@ -77,7 +75,6 @@ def twebsocketflow(messages=True, err=None) -> http.HTTPFlow:
     if err is True:
         flow.error = terr()
 
-    flow.reply = controller.DummyReply()
     return flow
 
 
@@ -105,7 +102,6 @@ def tflow(client_conn=True, server_conn=True, req=True, resp=None, err=None):
     f.request = req
     f.response = resp
     f.error = err
-    f.reply = controller.DummyReply()
     return f
 
 
@@ -126,7 +122,6 @@ def tdummyflow(client_conn=True, server_conn=True, err=None):
 
     f = DummyFlow(client_conn, server_conn)
     f.error = err
-    f.reply = controller.DummyReply()
     return f
 
 
@@ -152,7 +147,6 @@ def tclient_conn() -> connection.Client:
         alpn_offers=[],
         cipher_list=[],
     ))
-    c.reply = controller.DummyReply()  # type: ignore
     return c
 
 
@@ -180,7 +174,6 @@ def tserver_conn() -> connection.Server:
         cipher_list=[],
         via2=None,
     ))
-    c.reply = controller.DummyReply()  # type: ignore
     return c
 
 

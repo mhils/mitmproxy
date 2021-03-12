@@ -97,7 +97,7 @@ class TestScript:
 
             rec.call_log = []
             f = tflow.tflow(resp=True)
-            tctx.master.addons.trigger(HttpRequestHook(f))
+            await tctx.master.addons.trigger(HttpRequestHook(f))
 
             assert rec.call_log[0][1] == "request"
 
@@ -132,7 +132,7 @@ class TestScript:
             tctx.configure(sc)
 
             f = tflow.tflow(resp=True)
-            tctx.master.addons.trigger(HttpRequestHook(f))
+            await tctx.master.addons.trigger(HttpRequestHook(f))
 
             await tctx.master.await_log("ValueError: Error!")
             await tctx.master.await_log("error.py")

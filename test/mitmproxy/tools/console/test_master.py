@@ -10,10 +10,10 @@ from ... import tservers
 
 @pytest.mark.asyncio
 class TestMaster(tservers.MasterTest):
-    def mkmaster(self, **opts):
+    async def mkmaster(self, **opts):
         o = options.Options(**opts)
         m = console.master.ConsoleMaster(o)
-        m.addons.trigger(hooks.ConfigureHook(o.keys()))
+        await m.addons.trigger(hooks.ConfigureHook(o.keys()))
         return m
 
     async def test_basic(self):

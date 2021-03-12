@@ -57,18 +57,3 @@ def test_tcp():
         f = tflow.ttcpflow()
         tctx.cycle(r, f)
         assert not f.intercepted
-
-
-def test_already_taken():
-    r = intercept.Intercept()
-    with taddons.context(r) as tctx:
-        tctx.configure(r, intercept="~q")
-
-        f = tflow.tflow()
-        tctx.invoke(r, layers.http.HttpRequestHook(f))
-        assert f.intercepted
-
-        f = tflow.tflow()
-        f.reply.take()
-        tctx.invoke(r, layers.http.HttpRequestHook(f))
-        assert not f.intercepted

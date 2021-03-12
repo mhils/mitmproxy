@@ -37,12 +37,11 @@ class Intercept:
                 and not f.is_replay
         )
 
-    def process_flow(self, f: flow.Flow) -> None:
+    async def process_flow(self, f: flow.Flow) -> None:
         if self.should_intercept(f):
-            assert f.reply
-            if f.reply.state != "start":
-                return ctx.log.debug("Cannot intercept request that is already taken by another addon.")
             f.intercept()
+        if f._resume is not None:
+            await f._resume.wait()
 
     # Handlers
 

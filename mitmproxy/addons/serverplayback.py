@@ -80,7 +80,7 @@ class ServerPlayback:
         )
 
     @command.command("replay.server")
-    def load_flows(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def load_flows(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Replay server responses from flows.
         """
@@ -89,7 +89,7 @@ class ServerPlayback:
             if isinstance(f, http.HTTPFlow):
                 lst = self.flowmap.setdefault(self._hash(f), [])
                 lst.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook([]))
+        await ctx.master.addons.trigger(hooks.UpdateHook([]))
 
     @command.command("replay.server.file")
     def load_file(self, path: mitmproxy.types.Path) -> None:
@@ -100,12 +100,12 @@ class ServerPlayback:
         self.load_flows(flows)
 
     @command.command("replay.server.stop")
-    def clear(self) -> None:
+    async def clear(self) -> None:
         """
             Stop server replay.
         """
         self.flowmap = {}
-        ctx.master.addons.trigger(hooks.UpdateHook([]))
+        await ctx.master.addons.trigger(hooks.UpdateHook([]))
 
     @command.command("replay.server.count")
     def count(self) -> int:

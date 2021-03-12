@@ -1,5 +1,6 @@
 import pytest
 
+from mitmproxy import http
 from mitmproxy.addons import mapremote
 from mitmproxy.test import taddons
 from mitmproxy.test import tflow
@@ -34,6 +35,6 @@ class TestMapRemote:
             tctx.configure(mr, map_remote=[":example.org:mitmproxy.org"])
             f = tflow.tflow()
             f.request.url = b"https://example.org/images/test.jpg"
-            f.reply.take()
+            f.response = http.Response.make(200)
             mr.request(f)
             assert f.request.url == "https://example.org/images/test.jpg"

@@ -92,18 +92,18 @@ class Core:
             raise exceptions.CommandError(e) from e
 
     @command.command("flow.resume")
-    def resume(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def resume(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Resume flows if they are intercepted.
         """
         intercepted = [i for i in flows if i.intercepted]
         for f in intercepted:
             f.resume()
-        ctx.master.addons.trigger(hooks.UpdateHook(intercepted))
+        await ctx.master.addons.trigger(hooks.UpdateHook(intercepted))
 
     # FIXME: this will become view.mark later
     @command.command("flow.mark")
-    def mark(self, flows: typing.Sequence[flow.Flow], boolean: bool) -> None:
+    async def mark(self, flows: typing.Sequence[flow.Flow], boolean: bool) -> None:
         """
             Mark flows.
         """
@@ -112,20 +112,20 @@ class Core:
             if i.marked != boolean:
                 i.marked = boolean
                 updated.append(i)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
 
     # FIXME: this will become view.mark.toggle later
     @command.command("flow.mark.toggle")
-    def mark_toggle(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def mark_toggle(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Toggle mark for flows.
         """
         for i in flows:
             i.marked = not i.marked
-        ctx.master.addons.trigger(hooks.UpdateHook(flows))
+        await ctx.master.addons.trigger(hooks.UpdateHook(flows))
 
     @command.command("flow.kill")
-    def kill(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def kill(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Kill running flows.
         """
@@ -135,11 +135,11 @@ class Core:
                 f.kill()
                 updated.append(f)
         ctx.log.alert("Killed %s flows." % len(updated))
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
 
     # FIXME: this will become view.revert later
     @command.command("flow.revert")
-    def revert(self, flows: typing.Sequence[flow.Flow]) -> None:
+    async def revert(self, flows: typing.Sequence[flow.Flow]) -> None:
         """
             Revert flow changes.
         """
@@ -149,7 +149,7 @@ class Core:
                 f.revert()
                 updated.append(f)
         ctx.log.alert("Reverted %s flows." % len(updated))
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
 
     @command.command("flow.set.options")
     def flow_set_options(self) -> typing.Sequence[str]:
@@ -164,7 +164,7 @@ class Core:
 
     @command.command("flow.set")
     @command.argument("attr", type=mitmproxy.types.Choice("flow.set.options"))
-    def flow_set(
+    async def flow_set(
         self,
         flows: typing.Sequence[flow.Flow],
         attr: str,
@@ -218,11 +218,11 @@ class Core:
             if rupdate or supdate:
                 updated.append(f)
 
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
         ctx.log.alert("Set {} on  {} flows.".format(attr, len(updated)))
 
     @command.command("flow.decode")
-    def decode(self, flows: typing.Sequence[flow.Flow], part: str) -> None:
+    async def decode(self, flows: typing.Sequence[flow.Flow], part: str) -> None:
         """
             Decode flows.
         """
@@ -233,11 +233,11 @@ class Core:
                 f.backup()
                 p.decode()
                 updated.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
         ctx.log.alert("Decoded %s flows." % len(updated))
 
     @command.command("flow.encode.toggle")
-    def encode_toggle(self, flows: typing.Sequence[flow.Flow], part: str) -> None:
+    async def encode_toggle(self, flows: typing.Sequence[flow.Flow], part: str) -> None:
         """
             Toggle flow encoding on and off, using deflate for encoding.
         """
@@ -252,12 +252,12 @@ class Core:
                 else:
                     p.decode()
                 updated.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
         ctx.log.alert("Toggled encoding on %s flows." % len(updated))
 
     @command.command("flow.encode")
     @command.argument("encoding", type=mitmproxy.types.Choice("flow.encode.options"))
-    def encode(
+    async def encode(
         self,
         flows: typing.Sequence[flow.Flow],
         part: str,
@@ -275,7 +275,7 @@ class Core:
                     f.backup()
                     p.encode(encoding)
                     updated.append(f)
-        ctx.master.addons.trigger(hooks.UpdateHook(updated))
+        await ctx.master.addons.trigger(hooks.UpdateHook(updated))
         ctx.log.alert("Encoded %s flows." % len(updated))
 
     @command.command("flow.encode.options")
