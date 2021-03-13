@@ -19,7 +19,7 @@ def run_tests(src, test, fail):
             e = pytest.main([
                 '-qq',
                 '--disable-pytest-warnings',
-                '--cov', src.replace('.py', '').replace('/', '.'),
+                '--cov', src.replace('.py', '').replace('/', '.').replace('\\', '.'),
                 '--cov-fail-under', '100',
                 '--cov-report', 'term-missing:skip-covered',
                 '-o', 'faulthandler_timeout=0',

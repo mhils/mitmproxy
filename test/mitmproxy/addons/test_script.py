@@ -82,13 +82,14 @@ class TestScript:
 
     @pytest.mark.asyncio
     async def test_simple(self, tdata):
-        sc = script.Script(
-            tdata.path(
-                "mitmproxy/data/addonscripts/recorder/recorder.py"
-            ),
-            True,
-        )
-        with taddons.context(sc) as tctx:
+        with taddons.context() as tctx:
+            sc = script.Script(
+                tdata.path(
+                    "mitmproxy/data/addonscripts/recorder/recorder.py"
+                ),
+                True,
+            )
+            tctx.master.addons.add(sc)
             tctx.configure(sc)
             await tctx.master.await_log("recorder running")
             rec = tctx.master.addons.get("recorder")
@@ -100,6 +101,7 @@ class TestScript:
             tctx.master.addons.trigger(HttpRequestHook(f))
 
             assert rec.call_log[0][1] == "request"
+            sc.done()
 
     @pytest.mark.asyncio
     async def test_reload(self, tmpdir):
@@ -119,6 +121,7 @@ class TestScript:
                 await asyncio.sleep(0.1)
             else:
                 raise AssertionError("No reload seen")
+            sc.done()
 
     @pytest.mark.asyncio
     async def test_exception(self, tdata):
@@ -136,6 +139,7 @@ class TestScript:
 
             await tctx.master.await_log("ValueError: Error!")
             await tctx.master.await_log("error.py")
+            sc.done()
 
     @pytest.mark.asyncio
     async def test_optionexceptions(self, tdata):
@@ -147,6 +151,7 @@ class TestScript:
             tctx.master.addons.add(sc)
             tctx.configure(sc)
             await tctx.master.await_log("Options Error")
+            sc.done()
 
     @pytest.mark.asyncio
     async def test_addon(self, tdata):
@@ -162,6 +167,7 @@ class TestScript:
             assert sc.ns.event_log == [
                 'scriptload', 'addonload', 'scriptconfigure', 'addonconfigure'
             ]
+            sc.done()
 
 
 class TestCutTraceback:
@@ -204,7 +210,8 @@ class TestScriptLoader:
             sc.script_run([tflow.tflow(resp=True)], "/")
             await tctx.master.await_log("No such script")
 
-    def test_simple(self, tdata):
+    @pytest.mark.asyncio
+    async def test_simple(self, tdata):
         sc = script.ScriptLoader()
         with taddons.context(loadcore=False) as tctx:
             tctx.master.addons.add(sc)
@@ -223,7 +230,8 @@ class TestScriptLoader:
             assert len(tctx.master.addons) == 1
             assert len(sc.addons) == 0
 
-    def test_dupes(self):
+    @pytest.mark.asyncio
+    async def test_dupes(self):
         sc = script.ScriptLoader()
         with taddons.context(sc) as tctx:
             with pytest.raises(exceptions.OptionsError):
@@ -330,3 +338,4 @@ class TestScriptLoader:
                 'e running',
                 'e configure',
             ]
+            tctx.configure(sc, scripts=[])

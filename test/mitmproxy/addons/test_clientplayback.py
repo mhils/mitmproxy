@@ -78,6 +78,7 @@ async def test_playback_crash(monkeypatch):
         cp.start_replay([tflow.tflow()])
         await tctx.master.await_log("Client replay has crashed!", level="error")
         assert cp.count() == 0
+        cp.done()
 
 
 def test_check():
