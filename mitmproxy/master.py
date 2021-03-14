@@ -34,10 +34,9 @@ class Master:
         self.addons = addonmanager.AddonManager(self)
         self._server = None
         self.log = log.Log(self)
-
-        mitmproxy_ctx.master = self
-        mitmproxy_ctx.log = self.log
-        mitmproxy_ctx.options = self.options
+        mitmproxy_ctx._master.set(self)
+        mitmproxy_ctx._log.set(self.log)
+        mitmproxy_ctx._options.set(self.options)
 
     def start(self):
         self.should_exit.clear()
