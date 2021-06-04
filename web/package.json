@@ -23,7 +23,7 @@
     ]
   },
   "dependencies": {
-    "bootstrap": "^3.3.7",
+    "bootstrap": "^5.0.1",
     "classnames": "^2.2.5",
     "lodash": "^4.17.4",
     "mock-xmlhttprequest": "^1.1.0",

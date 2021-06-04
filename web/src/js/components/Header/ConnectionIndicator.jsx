@@ -12,16 +12,16 @@ ConnectionIndicator.propTypes = {
 export function ConnectionIndicator({ state, message }) {
     switch (state) {
         case ConnectionState.INIT:
-            return <span className="connection-indicator init">connecting…</span>;
+            return <span className="connection-indicator init badge">connecting…</span>;
         case ConnectionState.FETCHING:
-            return <span className="connection-indicator fetching">fetching data…</span>;
+            return <span className="connection-indicator fetching badge">fetching data…</span>;
         case ConnectionState.ESTABLISHED:
-            return <span className="connection-indicator established">connected</span>;
+            return <span className="connection-indicator established badge">connected</span>;
         case ConnectionState.ERROR:
-            return <span className="connection-indicator error"
+            return <span className="connection-indicator error badge"
                          title={message}>connection lost</span>;
         case ConnectionState.OFFLINE:
-            return <span className="connection-indicator offline">offline</span>;
+            return <span className="connection-indicator offline badge">offline</span>;
     }
 }
 

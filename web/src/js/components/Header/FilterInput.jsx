@@ -105,7 +105,7 @@ export default class FilterInput extends Component {
         const { value, focus, mousefocus } = this.state
         return (
             <div className={classnames('filter-input input-group', { 'has-error': !this.isValid() })}>
-                <span className="input-group-addon">
+                <span className="input-group-text">
                     <i className={'fa fa-fw fa-' + type} style={{ color }}></i>
                 </span>
                 <input

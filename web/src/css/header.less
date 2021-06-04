@@ -1,14 +1,10 @@
-@import (reference) '../../node_modules/bootstrap/less/variables.less';
-@import (reference) '../../node_modules/bootstrap/less/mixins/grid.less';
-@import (reference) "../../node_modules/bootstrap/less/mixins/labels.less";
-@import (reference) "../../node_modules/bootstrap/less/labels.less";
-
 @menu-height: 85px;
 
 header {
     padding-top: 6px;
     background-color: white;
     @separator-color: lighten(grey, 15%);
+
     > div {
         display: block;
         margin: 0;
@@ -39,6 +35,7 @@ header {
         padding: 12px 5px;
         border: none;
         border-radius: 0;
+
         i {
             font-size: 20px;
             display: block;
@@ -58,6 +55,7 @@ header {
         font-weight: normal;
         margin: 0;
     }
+
     input[type=checkbox] {
         margin: 0 2px;
         vertical-align: middle;
@@ -83,25 +81,11 @@ header {
 
 @menu-main-gutter-width: 5px;
 .menu-main {
-    .make-row(@menu-main-gutter-width);
     padding: 2px 5px;
 }
 
 .filter-input {
-    .make-sm-column(5, @menu-main-gutter-width);
     padding: 2.5px;
-
-    @media (max-width: @screen-xs-max) {
-
-        padding: 2px 2.5px;
-
-        > .form-control, > .input-group-addon, > .input-group-btn > .btn {
-            height: 23.5px;
-            padding: 1px 5px;
-            font-size: 12px;
-            line-height: 1.5;
-        }
-    }
 }
 
 .filter-input .popover {
@@ -111,19 +95,13 @@ header {
     max-width: none;
     opacity: 0.9;
 
-    @media (max-width: @screen-xs-max) {
-
-        top: 16px;
-        left: 29px;
-        right: 2px;
-    }
-
     .popover-content {
         max-height: 500px;
         overflow-y: auto;
 
         tr {
             cursor: pointer;
+
             &:hover {
                 background-color: hsla(209, 52%, 84%, 0.5) !important;
             }
@@ -132,25 +110,27 @@ header {
 }
 
 .connection-indicator {
-    .label();
     float: right;
     margin: 5px;
     opacity: 1;
     transition: all 1s linear;
 
     &.init, &.fetching {
-        background-color: @label-info-bg;
+        background-color: var(--bs-info);
     }
+
     &.established {
-        background-color: @label-success-bg;
+        background-color: var(--bs-success);
         opacity: 0;
     }
+
     &.error {
-        background-color: @label-danger-bg;
+        background-color: var(--bs-danger);
         transition: all 0.2s linear;
     }
+
     &.offline {
-        background-color: @label-warning-bg;
+        background-color: var(--bs-warning);
         opacity: 1;
     }
 }
