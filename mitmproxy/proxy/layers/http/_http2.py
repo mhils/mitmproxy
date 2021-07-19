@@ -169,7 +169,8 @@ class Http2Connection(HttpConnection):
         if isinstance(event, h2.events.DataReceived):
             state = self.streams.get(event.stream_id, None)
             if state is StreamState.HEADERS_RECEIVED:
-                yield ReceiveHttp(self.ReceiveData(event.stream_id, event.data))
+                if event.data:  # we may have empta data frames which just close.
+                    yield ReceiveHttp(self.ReceiveData(event.stream_id, event.data))
             elif state is StreamState.EXPECTING_HEADERS:
                 yield from self.protocol_error(f"Received HTTP/2 data frame, expected headers.")
                 return True
@@ -484,9 +485,15 @@ def parse_h2_request_headers(
 
     try:
         method: bytes = pseudo_headers.pop(b":method")
-        scheme: bytes = pseudo_headers.pop(b":scheme")  # this raises for HTTP/2 CONNECT requests
-        path: bytes = pseudo_headers.pop(b":path")
         authority: bytes = pseudo_headers.pop(b":authority", b"")
+        if method.upper() != b"CONNECT":
+            scheme: bytes = pseudo_headers.pop(b":scheme")
+            path: bytes = pseudo_headers.pop(b":path")
+        else:
+            # RFC 8441 defines extended CONNECT, which currently fails here.
+            # https://datatracker.ietf.org/doc/html/rfc8441#section-4
+            scheme = b""
+            path = b""
     except KeyError as e:
         raise ValueError(f"Required pseudo header is missing: {e}")
 

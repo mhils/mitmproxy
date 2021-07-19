@@ -10,14 +10,15 @@ from mitmproxy.connection import ConnectionState, Server
 from mitmproxy.flow import Error
 from mitmproxy.http import HTTPFlow, Headers, Request
 from mitmproxy.net.http import status_codes
+from mitmproxy.proxy import layer
 from mitmproxy.proxy.commands import CloseConnection, OpenConnection, SendData
 from mitmproxy.proxy.context import Context
 from mitmproxy.proxy.events import ConnectionClosed, DataReceived
-from mitmproxy.proxy.layers import http
+from mitmproxy.proxy.layers import TCPLayer, http
 from mitmproxy.proxy.layers.http import HTTPMode
 from mitmproxy.proxy.layers.http._http2 import Http2Client, split_pseudo_headers
 from test.mitmproxy.proxy.layers.http.hyper_h2_test_helpers import FrameFactory
-from test.mitmproxy.proxy.tutils import Placeholder, Playbook, reply
+from test.mitmproxy.proxy.tutils import Placeholder, Playbook, reply, reply_next_layer
 
 example_request_headers = (
     (b':method', b'GET'),
@@ -121,6 +122,46 @@ def test_simple(tctx):
     )
     assert flow().request.url == "http://example.com/"
     assert flow().response.text == "Hello, World!"
+
+
+def test_http2_proxy(tctx):
+    """Test CONNECT over HTTP/2"""
+    playbook, cff = start_h2_client(tctx)
+    flow = Placeholder(HTTPFlow)
+    server = Placeholder(Server)
+    connect_response = Placeholder(bytes)
+    assert (
+        playbook
+        >> DataReceived(tctx.client,
+                        cff.build_headers_frame((
+                            (b':method', b'CONNECT'),
+                            (b':authority', b'example.com:443'),
+                        )).serialize())
+        << http.HttpConnectHook(flow)
+        >> reply()
+        << OpenConnection(server)
+        >> reply(None, side_effect=make_h2)
+        << SendData(tctx.client, connect_response)
+    )
+    frames = decode_frames(connect_response())
+    assert [type(x) for x in frames] == [hyperframe.frame.HeadersFrame]
+    stream_close = Placeholder(bytes)
+    assert (
+        playbook
+        >> DataReceived(tctx.client, cff.build_data_frame(b"hello").serialize())
+        << layer.NextLayerHook(Placeholder())
+        >> reply_next_layer(lambda ctx: TCPLayer(ctx, ignore=True))
+        << SendData(server, b"hello")
+        >> DataReceived(server, b"world")
+        << SendData(tctx.client, cff.build_data_frame(b"world").serialize())
+        >> DataReceived(tctx.client, cff.build_data_frame(b"", flags=["END_STREAM"]).serialize())
+        << CloseConnection(server)
+        >> ConnectionClosed(server)
+        << SendData(tctx.client, stream_close)
+    )
+    frames = decode_frames(stream_close())
+    assert [type(x) for x in frames] == [hyperframe.frame.DataFrame]
+    assert "END_STREAM" in frames[0].flags
 
 
 @pytest.mark.parametrize("stream", ["stream", ""])

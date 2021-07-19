@@ -3,8 +3,8 @@ import pytest
 from mitmproxy import http
 from mitmproxy.proxy.commands import SendData
 from mitmproxy.proxy.events import DataReceived
-from mitmproxy.proxy.layers.http import Http1Server, ReceiveHttp, RequestHeaders, RequestEndOfMessage, \
-    ResponseHeaders, ResponseEndOfMessage, RequestData, Http1Client, ResponseData
+from mitmproxy.proxy.layers.http import Http1Client, Http1Server, ReceiveHttp, RequestData, RequestEndOfMessage, \
+    RequestHeaders, ResponseData, ResponseEndOfMessage, ResponseHeaders
 from test.mitmproxy.proxy.tutils import Placeholder, Playbook
 
 
@@ -56,7 +56,6 @@ class TestServer:
                 # << ReceiveHttp(RequestEndOfMessage(1))
                 >> ResponseHeaders(1, http.Response.make(200))
                 << SendData(tctx.client, b'HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n')
-                >> ResponseEndOfMessage(1)
         )
         if not pipeline:
             playbook >> DataReceived(tctx.client, b"some plain tcp")

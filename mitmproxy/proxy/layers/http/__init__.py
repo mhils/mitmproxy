@@ -546,7 +546,7 @@ class HttpStream(layer.Layer):
         if (yield from self.check_killed(False)):
             return
 
-        self.context.server.address = (self.flow.request.host, self.flow.request.port)
+        self.context.server = Server((self.flow.request.host, self.flow.request.port))
 
         if self.mode == HTTPMode.regular:
             yield from self.handle_connect_regular()
@@ -583,8 +583,7 @@ class HttpStream(layer.Layer):
             )
 
         if 200 <= self.flow.response.status_code < 300:
-            yield SendHttp(ResponseHeaders(self.stream_id, self.flow.response, True), self.context.client)
-            yield SendHttp(ResponseEndOfMessage(self.stream_id), self.context.client)
+            yield SendHttp(ResponseHeaders(self.stream_id, self.flow.response), self.context.client)
             self.child_layer = self.child_layer or layer.NextLayer(self.context)
             yield from self.child_layer.handle_event(events.Start())
             self._handle_event = self.passthrough
@@ -600,9 +599,9 @@ class HttpStream(layer.Layer):
             event = events.DataReceived(self.context.client, event.data)
         elif isinstance(event, ResponseData):
             event = events.DataReceived(self.context.server, event.data)
-        elif isinstance(event, RequestEndOfMessage):
+        elif isinstance(event, (RequestEndOfMessage, RequestProtocolError)):
             event = events.ConnectionClosed(self.context.client)
-        elif isinstance(event, ResponseEndOfMessage):
+        elif isinstance(event, (ResponseEndOfMessage, ResponseProtocolError)):
             event = events.ConnectionClosed(self.context.server)
 
         for command in self.child_layer.handle_event(event):
@@ -618,9 +617,9 @@ class HttpStream(layer.Layer):
                     yield command
             elif isinstance(command, commands.CloseConnection):
                 if command.connection == self.context.client:
-                    yield SendHttp(ResponseProtocolError(self.stream_id, "EOF"), self.context.client)
+                    yield SendHttp(ResponseEndOfMessage(self.stream_id), self.context.client)
                 elif command.connection == self.context.server and self.flow.response.status_code == 101:
-                    yield SendHttp(RequestProtocolError(self.stream_id, "EOF"), self.context.server)
+                    yield SendHttp(RequestEndOfMessage(self.stream_id), self.context.server)
                 else:
                     # If we are running TCP over HTTP we want to be consistent with half-closes.
                     # The easiest approach for this is to just always full close for now.

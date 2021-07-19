@@ -51,7 +51,7 @@ class Http1Connection(HttpConnection, metaclass=abc.ABCMeta):
         if isinstance(event, HttpEvent):
             yield from self.send(event)
         else:
-            if isinstance(event, events.DataReceived) and self.state != self.passthrough:
+            if isinstance(event, events.DataReceived):
                 self.buf += event.data
             yield from self.state(event)
 
@@ -119,20 +119,28 @@ class Http1Connection(HttpConnection, metaclass=abc.ABCMeta):
         yield from ()  # pragma: no cover
 
     def make_pipe(self) -> layer.CommandGenerator[None]:
-        self.state = self.passthrough
+        self._handle_event = self.passthrough  # type: ignore
         if self.buf:
             already_received = self.buf.maybe_extract_at_most(len(self.buf))
-            yield from self.state(events.DataReceived(self.conn, already_received))
+            yield from self.passthrough(events.DataReceived(self.conn, already_received))
 
     def passthrough(self, event: events.Event) -> layer.CommandGenerator[None]:
-        assert self.stream_id
-        if isinstance(event, events.DataReceived):
-            yield ReceiveHttp(self.ReceiveData(self.stream_id, event.data))
-        elif isinstance(event, events.ConnectionClosed):
-            if isinstance(self, Http1Server):
-                yield ReceiveHttp(RequestEndOfMessage(self.stream_id))
+        if isinstance(event, HttpEvent):
+            if isinstance(event, (RequestData, ResponseData)):
+                yield commands.SendData(self.conn, event.data)
+            elif isinstance(event, (RequestEndOfMessage, ResponseEndOfMessage)):
+                yield commands.CloseConnection(self.conn)
             else:
-                yield ReceiveHttp(ResponseEndOfMessage(self.stream_id))
+                raise AssertionError(f"Unexpected HttpEvent: {event}")
+        else:
+            assert self.stream_id
+            if isinstance(event, events.DataReceived):
+                yield ReceiveHttp(self.ReceiveData(self.stream_id, event.data))
+            elif isinstance(event, events.ConnectionClosed):
+                if isinstance(self, Http1Server):
+                    yield ReceiveHttp(RequestEndOfMessage(self.stream_id))
+                else:
+                    yield ReceiveHttp(ResponseEndOfMessage(self.stream_id))
 
     def mark_done(self, *, request: bool = False, response: bool = False) -> layer.CommandGenerator[None]:
         if request:
@@ -197,6 +205,10 @@ class Http1Server(Http1Connection):
 
             raw = http1.assemble_response_head(response)
             yield commands.SendData(self.conn, raw)
+
+            assert self.request
+            if self.request.data.method.upper() == b"CONNECT" and response.status_code == 200:
+                yield from self.make_pipe()
         elif isinstance(event, ResponseData):
             assert self.response
             if "chunked" in self.response.headers.get("transfer-encoding", "").lower():
