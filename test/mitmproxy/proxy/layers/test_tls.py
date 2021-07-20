@@ -371,12 +371,13 @@ class TestClientTLS:
 
         # Send ClientHello, receive ServerHello
         data = tutils.Placeholder(bytes)
+        tlsstartdata = tutils.Placeholder(tls.TlsStartData)
         assert (
                 playbook
                 >> events.DataReceived(tctx.client, tssl_client.bio_read())
                 << tls.TlsClienthelloHook(tutils.Placeholder())
                 >> tutils.reply()
-                << tls.TlsStartClientHook(tutils.Placeholder())
+                << tls.TlsStartClientHook(tlsstartdata)
                 >> reply_tls_start_client()
                 << commands.SendData(tctx.client, data)
         )
@@ -386,7 +387,7 @@ class TestClientTLS:
         interact(playbook, tctx.client, tssl_client)
 
         assert tssl_client.obj.getpeercert(True)
-        assert tctx.client.tls_established
+        assert tlsstartdata().context.client.tls_established
 
         # Echo
         _test_echo(playbook, tssl_client, tctx.client)
@@ -397,13 +398,13 @@ class TestClientTLS:
                 << commands.SendData(other_server, b"plaintext")
         )
 
-    @pytest.mark.parametrize("eager", ["eager", ""])
-    def test_server_required(self, tctx, eager):
+    @pytest.mark.parametrize("connection_strategy", ["eager", "lazy"])
+    def test_server_required(self, tctx, connection_strategy):
         """
         Test the scenario where a server connection is required (for example, because of an unknown ALPN)
         to establish TLS with the client.
         """
-        if eager:
+        if connection_strategy == "eager":
             tctx.server.state = ConnectionState.OPEN
         tssl_server = SSLTest(server_side=True, alpn=["quux"])
         playbook, client_layer, tssl_client = make_client_tls_layer(tctx, alpn=["quux"])
@@ -420,7 +421,7 @@ class TestClientTLS:
                 << tls.TlsClienthelloHook(tutils.Placeholder())
                 >> tutils.reply(side_effect=require_server_conn)
         )
-        if not eager:
+        if connection_strategy == "lazy":
             (
                 playbook
                 << commands.OpenConnection(tctx.server)
@@ -439,11 +440,12 @@ class TestClientTLS:
             tssl_server.do_handshake()
 
         data = tutils.Placeholder(bytes)
+        tls_start_data = tutils.Placeholder(tls.TlsStartData)
         assert (
                 playbook
                 >> events.DataReceived(tctx.server, tssl_server.bio_read())
                 << commands.SendData(tctx.server, data)
-                << tls.TlsStartClientHook(tutils.Placeholder())
+                << tls.TlsStartClientHook(tls_start_data)
         )
         tssl_server.bio_write(data())
         assert tctx.server.tls_established
@@ -460,10 +462,10 @@ class TestClientTLS:
         interact(playbook, tctx.client, tssl_client)
 
         # Both handshakes completed!
-        assert tctx.client.tls_established
+        assert tls_start_data().context.client.tls_established
         assert tctx.server.tls_established
-        assert tctx.server.sni == tctx.client.sni
-        assert tctx.client.alpn == b"quux"
+        assert tctx.server.sni == "example.mitmproxy.org"
+        assert tls_start_data().context.client.alpn == b"quux"
         assert tctx.server.alpn == b"quux"
         _test_echo(playbook, tssl_server, tctx.server)
         _test_echo(playbook, tssl_client, tctx.client)

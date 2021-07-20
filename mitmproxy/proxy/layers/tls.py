@@ -147,15 +147,6 @@ class _TLSLayer(tunnel.TunnelLayer):
     tls: SSL.Connection = None  # type: ignore
     """The OpenSSL connection object"""
 
-    def __init__(self, context: context.Context, conn: connection.Connection):
-        super().__init__(
-            context,
-            tunnel_connection=conn,
-            conn=conn,
-        )
-
-        conn.tls = True
-
     def __repr__(self):
         return super().__repr__().replace(")", f" {self.conn.sni} {self.conn.alpn})")
 
@@ -169,7 +160,7 @@ class _TLSLayer(tunnel.TunnelLayer):
             yield TlsStartServerHook(tls_start)
         if not tls_start.ssl_conn:
             yield commands.Log("No TLS context was provided, failing connection.", "error")
-            yield commands.CloseConnection(self.conn)
+            yield commands.CloseConnection(self.tunnel_connection)
         assert tls_start.ssl_conn
         self.tls = tls_start.ssl_conn
 
@@ -180,7 +171,7 @@ class _TLSLayer(tunnel.TunnelLayer):
             except SSL.WantReadError:
                 return  # Okay, nothing more waiting to be sent.
             else:
-                yield commands.SendData(self.conn, data)
+                yield commands.SendData(self.tunnel_connection, data)
 
     def receive_handshake_data(self, data: bytes) -> layer.CommandGenerator[Tuple[bool, Optional[str]]]:
         # bio_write errors for b"", so we need to check first if we actually received something.
@@ -288,7 +279,13 @@ class ServerTLSLayer(_TLSLayer):
     wait_for_clienthello: bool = False
 
     def __init__(self, context: context.Context, conn: Optional[connection.Server] = None):
-        super().__init__(context, conn or context.server)
+        conn = conn or context.server
+        super().__init__(
+            context,
+            tunnel_connection=conn,
+            conn=conn,
+        )
+        conn.tls = True
 
     def start_handshake(self) -> layer.CommandGenerator[None]:
         wait_for_clienthello = (
@@ -345,8 +342,26 @@ class ClientTLSLayer(_TLSLayer):
     server_tls_available: bool
     client_hello_parsed: bool = False
 
-    def __init__(self, context: context.Context):
-        super().__init__(context, context.client)
+    def __init__(self, ctx: context.Context):
+        # We create a new client object here to not override TLS attributes in case of TLS-over-TLS.
+        # Subsequently, we create a new Context object here to not override context.client for parent layers.
+        conn = connection.Client(
+            ctx.client.peername,
+            ctx.client.sockname,
+            ctx.client.timestamp_start
+        )
+        conn.tls = True
+
+        inner_ctx = context.Context(conn, ctx.options)
+        inner_ctx.layers = ctx.layers
+        inner_ctx.server = ctx.server
+
+        super().__init__(
+            inner_ctx,
+            tunnel_connection=ctx.client,
+            conn=conn,
+        )
+
         self.server_tls_available = isinstance(self.context.layers[-2], ServerTLSLayer)
         self.recv_buffer = bytearray()
 
@@ -379,7 +394,7 @@ class ClientTLSLayer(_TLSLayer):
                                    f"Trying to establish TLS with client anyway.")
 
         yield from self.start_tls()
-        if not self.conn.connected:
+        if not self.tunnel_connection.connected:
             return False, "connection closed early"
 
         ret = yield from super().receive_handshake_data(bytes(self.recv_buffer))
@@ -434,4 +449,6 @@ class MockTLSLayer(_TLSLayer):
     """
 
     def __init__(self, ctx: context.Context):
-        super().__init__(ctx, connection.Server(None))
+        conn = connection.Server(None)
+        super().__init__(ctx, conn, conn)
+        conn.tls = True
