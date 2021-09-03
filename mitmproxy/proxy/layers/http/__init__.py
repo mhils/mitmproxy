@@ -94,20 +94,16 @@ class SendHttp(HttpCommand):
 
 
 class HttpStream(layer.Layer):
+    mode: HTTPMode
     request_body_buf: bytes
     response_body_buf: bytes
     flow: http.HTTPFlow
     stream_id: StreamId
     child_layer: Optional[layer.Layer] = None
 
-    @property
-    def mode(self):
-        i = self.context.layers.index(self)
-        parent: HttpLayer = self.context.layers[i - 1]
-        return parent.mode
-
-    def __init__(self, context: Context, stream_id: int):
+    def __init__(self, context: Context, mode: HTTPMode, stream_id: int):
         super().__init__(context)
+        self.mode = mode
         self.request_body_buf = b""
         self.response_body_buf = b""
         self.client_state = self.state_uninitialized
@@ -644,11 +640,13 @@ class HttpStream(layer.Layer):
     def state_uninitialized(self, _) -> layer.CommandGenerator[None]:
         yield from ()
 
-    @expect()
-    def state_done(self, _) -> layer.CommandGenerator[None]:
+    @staticmethod
+    def state_done(e) -> layer.CommandGenerator[None]:
         yield from ()
+        raise AssertionError(f"Unexpected event: {e}")
 
-    def state_errored(self, _) -> layer.CommandGenerator[None]:
+    @staticmethod
+    def state_errored(_) -> layer.CommandGenerator[None]:
         # silently consume every event.
         yield from ()
 
@@ -710,6 +708,7 @@ class HttpLayer(layer.Layer):
             if isinstance(conn, HttpStream):
                 stream_id = conn.stream_id
             else:
+                raise NotImplementedError
                 # We reach to the end of the connection's child stack to get the HTTP/1 client layer,
                 # which tells us which stream we are dealing with.
                 conn = conn.context.layers[-1]
@@ -776,7 +775,7 @@ class HttpLayer(layer.Layer):
 
     def make_stream(self, stream_id: int) -> layer.CommandGenerator[None]:
         ctx = self.context.fork()
-        self.streams[stream_id] = HttpStream(ctx, stream_id)
+        self.streams[stream_id] = HttpStream(ctx, self.mode, stream_id)
         yield from self.event_to_child(self.streams[stream_id], events.Start())
 
     def get_connection(self, event: GetHttpConnection, *, reuse: bool = True) -> layer.CommandGenerator[None]:

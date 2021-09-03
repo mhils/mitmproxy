@@ -147,7 +147,7 @@ class TlsConfig:
         # Force HTTP/1 for secure web proxies, we currently don't support CONNECT over HTTP/2.
         # There is a proof-of-concept branch at https://github.com/mhils/mitmproxy/tree/http2-proxy,
         # but the complexity outweighs the benefits for now.
-        if len(tls_start.context.layers) == 2 and isinstance(tls_start.context.layers[0], modes.HttpProxy):
+        if len(tls_start.context.layers) == 2 and tls_start.context.layers[0] == modes.HttpProxy:
             client_alpn: Optional[bytes] = b"http/1.1"
         else:
             client_alpn = client.alpn

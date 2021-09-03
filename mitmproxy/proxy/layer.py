@@ -67,7 +67,7 @@ class Layer:
 
     def __init__(self, context: Context) -> None:
         self.context = context
-        self.context.layers.append(self)
+        self.context.layers.append(self.__class__)
         self._paused = None
         self._paused_event_queue = collections.deque()
 
@@ -104,7 +104,7 @@ class Layer:
     def stack_pos(self) -> str:
         """repr() for this layer and all its parent layers, only useful for debugging."""
         try:
-            idx = self.context.layers.index(self)
+            idx = self.context.layers.index(self.__class__)
         except ValueError:
             return repr(self)
         else:
@@ -241,7 +241,7 @@ class NextLayer(Layer):
 
     def __init__(self, context: Context, ask_on_start: bool = False) -> None:
         super().__init__(context)
-        self.context.layers.remove(self)
+        self.context.layers.remove(self.__class__)
         self.layer = None
         self.events = []
         self._ask_on_start = ask_on_start
@@ -250,13 +250,9 @@ class NextLayer(Layer):
     def __repr__(self):
         return f"NextLayer:{repr(self.layer)}"
 
-    def handle_event(self, event: mevents.Event):
-        if self._handle is not None:
-            yield from self._handle(event)
-        else:
-            yield from super().handle_event(event)
-
     def _handle_event(self, event: mevents.Event):
+        if self.layer is not None:
+            return (yield from self.layer.handle_event(event))
         self.events.append(event)
 
         # We receive new data. Let's find out if we can determine the next layer now?
@@ -284,16 +280,6 @@ class NextLayer(Layer):
             for e in self.events:
                 yield from self.layer.handle_event(e)
             self.events.clear()
-
-            # Why do we need three assignments here?
-            #  1. When this function here is invoked we may have paused events. Those should be
-            #     forwarded to the sublayer right away, so we reassign ._handle_event.
-            #  2. This layer is not needed anymore, so we directly reassign .handle_event.
-            #  3. Some layers may however still have a reference to the old .handle_event.
-            #     ._handle is just an optimization to reduce the callstack in these cases.
-            self.handle_event = self.layer.handle_event
-            self._handle_event = self.layer.handle_event
-            self._handle = self.layer.handle_event
 
     # Utility methods for whoever decides what the next layer is going to be.
     def data_client(self):

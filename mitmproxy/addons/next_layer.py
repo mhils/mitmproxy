@@ -34,7 +34,7 @@ def stack_match(
     if len(context.layers) != len(layers):
         return False
     return all(
-        expected is Any or isinstance(actual, expected)
+        expected is Any or actual == expected
         for actual, expected in zip(context.layers, layers)
     )
 

@@ -375,7 +375,7 @@ class ClientTLSLayer(_TLSLayer):
             context.client.cipher_list = []
 
         super().__init__(context, context.client)
-        self.server_tls_available = isinstance(self.context.layers[-2], ServerTLSLayer)
+        self.server_tls_available = self.context.layers[-2] == ServerTLSLayer
         self.recv_buffer = bytearray()
 
     def start_handshake(self) -> layer.CommandGenerator[None]:
