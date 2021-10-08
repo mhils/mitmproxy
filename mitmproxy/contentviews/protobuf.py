@@ -1,9 +1,12 @@
 import io
+from collections import Callable
+from dataclasses import dataclass
 from typing import Optional
 
 from kaitaistruct import KaitaiStream
 from . import base
 from mitmproxy.contrib.kaitaistruct import google_protobuf
+from mitmproxy import flowfilter, http, flow
 
 
 def write_buf(out, field_tag, body, indent_level):
@@ -61,16 +64,20 @@ def format_pbuf(raw):
     return out.getvalue()
 
 
-class ViewProtobuf(base.View):
+@dataclass
+class ProtobufDef:
+    name: Optional[str] = None
+    decode_as: Optional[Callable[[bytes], str]] = None
+
+
+class _ViewProtobuf(base.View):
     """Human friendly view of protocol buffers
     The view uses the protoc compiler to decode the binary
     """
+    definitions: dict[str, ProtobufDef]
 
-    name = "Protocol Buffer"
-    __content_types = [
-        "application/x-protobuf",
-        "application/x-protobuffer",
-    ]
+    def __init__(self, definitions: dict[str, ProtobufDef]):
+        self.definitions = definitions
 
     def __call__(self, data, **metadata):
         decoded = format_pbuf(data)
@@ -79,5 +86,42 @@ class ViewProtobuf(base.View):
 
         return "Protobuf", base.format_text(decoded)
 
+
+class ViewProtobuf(_ViewProtobuf):
+    """Default rendering of protobufs (with no additional information available)"""
+    name = "Protocol Buffer"
+
+    def __init__(self):
+        super().__init__({})
+
+    __content_types = [
+        "application/x-protobuf",
+        "application/x-protobuffer",
+    ]
+
     def render_priority(self, data: bytes, *, content_type: Optional[str] = None, **metadata) -> float:
         return float(bool(data) and content_type in self.__content_types)
+
+
+class CustomProtobuf(_ViewProtobuf):
+    """Customized protobuf rendering (with additional metadata specified manually)"""
+    # TODO: Ideally we'd have something that consumes .proto files as well
+
+    def __init__(self, filt: str, definitions: dict[str, ProtobufDef]):
+        self.filter = flowfilter.parse(filt)
+        super().__init__(definitions)
+
+    @property
+    def name(self):
+        return f"Protobuf ({self.filter.pattern})"
+
+    def render_priority(
+        self,
+        data: bytes,
+        *,
+        content_type: Optional[str] = None,
+        flow: Optional[flow.Flow] = None,
+        http_message: Optional[http.Message] = None,
+        **metadata
+    ) -> float:
+        return 2 * float(self.filter(flow))
