@@ -1,17 +1,21 @@
 import asyncio
-from typing import Dict, Optional, Tuple
+import re
+from typing import Dict, Optional, Tuple, Union
 
-from mitmproxy import command, ctx, exceptions, flow, http, log, master, options, platform, tcp, websocket
+from wsproto.frame_protocol import Opcode
+
+from mitmproxy import command, ctx, dns, exceptions, flow, http, log, master, options, platform, tcp, websocket
+from mitmproxy.connection import ConnectionProtocol
 from mitmproxy.flow import Flow
-from mitmproxy.proxy import commands, events, server_hooks
+from mitmproxy.proxy import commands, events, layers, server_hooks, udp_server
 from mitmproxy.proxy import server
 from mitmproxy.proxy.layers.tcp import TcpMessageInjected
 from mitmproxy.proxy.layers.websocket import WebSocketMessageInjected
+from mitmproxy.proxy.udp_server import UdpDatagramReader, UdpDatagramWriter, UdpServer
 from mitmproxy.utils import asyncio_utils, human
-from wsproto.frame_protocol import Opcode
 
 
-class ProxyConnectionHandler(server.StreamConnectionHandler):
+class ProxyConnectionHandler(server.LiveConnectionHandler):
     master: master.Master
 
     def __init__(self, master, r, w, options):
@@ -39,21 +43,20 @@ class Proxyserver:
     """
     This addon runs the actual proxy server.
     """
-    server: Optional[asyncio.AbstractServer]
+    tcp_server: Optional[asyncio.AbstractServer] = None
+    dns_server: Optional[UdpServer] = None
     listen_port: int
     master: master.Master
     options: options.Options
-    is_running: bool
+    is_running: bool = False
     _connections: Dict[Tuple, ProxyConnectionHandler]
 
     def __init__(self):
         self._lock = asyncio.Lock()
-        self.server = None
-        self.is_running = False
         self._connections = {}
 
     def __repr__(self):
-        return f"ProxyServer({'running' if self.server else 'stopped'}, {len(self._connections)} active conns)"
+        return f"ProxyServer({'running' if self.tcp_server else 'stopped'}, {len(self._connections)} active conns)"
 
     def load(self, loader):
         loader.add_option(
@@ -106,6 +109,23 @@ class Proxyserver:
             """,
         )
 
+        loader.add_option(
+            "dns_server", bool, False,
+            """Start a DNS server. Disabled by default."""
+        )
+        loader.add_option(
+            "dns_listen_host", str, "127.0.0.1",
+            """Address to bind DNS server to."""
+        )
+        loader.add_option(
+            "dns_listen_port", int, 53,
+            """DNS server service port."""
+        )
+        loader.add_option(
+            "dns_mode", str, "simple",
+            """DNS mode can be "simple", "reverse:<ip>[:<port>]" or "transparent".""",
+        )
+
     async def running(self):
         self.master = ctx.master
         self.options = ctx.options
@@ -127,42 +147,98 @@ class Proxyserver:
                                               f"{ctx.options.body_size_limit}")
         if "mode" in updated and ctx.options.mode == "transparent":  # pragma: no cover
             platform.init_transparent_mode()
-        if self.is_running and any(x in updated for x in ["server", "listen_host", "listen_port"]):
+        if "dns_mode" in updated:
+            # TODO: try to integrate that with server_spec.parse.
+            if not re.match(r"regular|transparent|reverse:[^:]+(:\d+)?", ctx.options.dns_mode):
+                raise exceptions.OptionsError(f"Invalid DNS mode {ctx.options.dns_mode!r}.")
+        if self.is_running and any(x in updated for x in [
+            "server", "listen_host", "listen_port",
+            "dns_server", "dns_listen_host", "dns_listen_port",
+        ]):
             asyncio.create_task(self.refresh_server())
 
     async def refresh_server(self):
         async with self._lock:
-            if self.server:
-                await self.shutdown_server()
-                self.server = None
+            if self.tcp_server:
+                ctx.log.info("Stopping TCP server...")
+                self.tcp_server.close()
+                await self.tcp_server.wait_closed()
+                self.tcp_server = None
             if ctx.options.server:
                 if not ctx.master.addons.get("nextlayer"):
                     ctx.log.warn("Warning: Running proxyserver without nextlayer addon!")
                 try:
-                    self.server = await asyncio.start_server(
-                        self.handle_connection,
+                    self.tcp_server = await asyncio.start_server(
+                        self.handle_tcp_connection,
                         self.options.listen_host,
                         self.options.listen_port,
                     )
                 except OSError as e:
                     ctx.log.error(str(e))
-                    return
-                # TODO: This is a bit confusing currently for `-p 0`.
-                addrs = {f"http://{human.format_address(s.getsockname())}" for s in self.server.sockets}
-                ctx.log.info(f"Proxy server listening at {' and '.join(addrs)}")
+                else:
+                    # TODO: This is a bit confusing currently for `-p 0`.
+                    addrs = {f"http://{human.format_address(s.getsockname())}" for s in self.tcp_server.sockets}
+                    ctx.log.info(f"Proxy server listening at {' and '.join(addrs)}")
+
+            if self.dns_server:
+                ctx.log.info("Stopping UDP server...")
+                self.dns_server.close()
+                # FIXME await self.dns_server.wait_closed()
+                self.dns_server = None
+            if ctx.options.dns_server:
+                try:
+                    self.dns_server = await udp_server.start_server(
+                        self.handle_udp_datagram,
+                        self.options.dns_listen_host,
+                        self.options.dns_listen_port,
+                    )
+                except OSError as e:
+                    ctx.log.error(str(e))
+                else:
+                    addr = human.format_address((self.options.dns_listen_host, self.options.dns_listen_port))
+                    ctx.log.info(f"DNS server listening at {addr}")
 
     async def shutdown_server(self):
         ctx.log.info("Stopping server...")
-        self.server.close()
-        await self.server.wait_closed()
-        self.server = None
+        self.tcp_server.close()
+        await self.tcp_server.wait_closed()
+        self.tcp_server = None
 
-    async def handle_connection(self, r, w):
+    async def handle_tcp_connection(self, r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
+        sockname = w.get_extra_info('sockname')
         peername = w.get_extra_info('peername')
+        conn_id = ("tcp", sockname, peername)
+        await self.handle_connection(r, w, conn_id)
+
+    def handle_udp_datagram(self, data: bytes, peername: Tuple[str, int], transport: asyncio.DatagramTransport) -> None:
+        sockname = transport.get_extra_info("sockname")
+        conn_id = ("udp", sockname, peername)  # do more fancy stuff here depending on the protocol.
+        if conn_id not in self._connections:
+            reader = UdpDatagramReader()
+            writer = UdpDatagramWriter(transport, peername)
+            # XXX: This might be racy, we should set ._connections here.
+            asyncio.create_task(
+                self.handle_connection(reader, writer, conn_id),
+            )
+        else:
+            handler = self._connections[conn_id]
+            reader = handler.transports[handler.client].reader
+
+        try:
+            reader.packet_queue.put_nowait(data)
+        except asyncio.QueueFull:
+            ctx.log.debug("Discarded UDP packet due to overload.")
+
+    async def handle_connection(
+        self,
+        r: Union[asyncio.StreamReader, UdpDatagramReader],
+        w: Union[asyncio.StreamWriter, UdpDatagramWriter],
+        connection_id: Tuple
+    ) -> None:
         asyncio_utils.set_task_debug_info(
             asyncio.current_task(),
             name=f"Proxyserver.handle_connection",
-            client=peername,
+            client=w.get_extra_info('peername'),
         )
         handler = ProxyConnectionHandler(
             self.master,
@@ -170,16 +246,28 @@ class Proxyserver:
             w,
             self.options
         )
-        self._connections[peername] = handler
+        self._connections[connection_id] = handler
+
+        # hacky: For DNS, hardcode layer and destination here.
+        if connection_id[0] == "udp":
+            handler.layer = layers.DNSLayer(handler.layer.context)
+            if m := re.match(r"reverse:(?P<host>[^:]+)(:(?P<port>\d+))?", self.options.dns_mode):
+                handler.layer.context.server.address = (m["host"], int(m["port"] or 53))
+                handler.layer.context.server.protocol = ConnectionProtocol.UDP
+            elif self.options.dns_mode == "transparent":
+                raise NotImplementedError
+            else:
+                assert self.options.dns_mode == "simple"
         try:
             await handler.handle_client()
         finally:
-            del self._connections[peername]
+            del self._connections[connection_id]
 
     def inject_event(self, event: events.MessageInjected):
-        if event.flow.client_conn.peername not in self._connections:
+        conn_id = ("tcp", event.flow.client_conn.sockname, event.flow.client_conn.peername)
+        if conn_id not in self._connections:
             raise ValueError("Flow is not from a live connection.")
-        self._connections[event.flow.client_conn.peername].server_event(event)
+        self._connections[conn_id].server_event(event)
 
     @command.command("inject.websocket")
     def inject_websocket(self, flow: Flow, to_client: bool, message: bytes, is_text: bool = True):
@@ -211,7 +299,7 @@ class Proxyserver:
     def server_connect(self, ctx: server_hooks.ServerConnectionHookData):
         assert ctx.server.address
         self_connect = (
-            ctx.server.address[1] == self.options.listen_port
+            ctx.server.address[1] in (self.options.dns_listen_port, self.options.listen_port)
             and
             ctx.server.address[0] in ("localhost", "127.0.0.1", "::1", self.options.listen_host)
         )
@@ -220,3 +308,7 @@ class Proxyserver:
                 "Request destination unknown. "
                 "Unable to figure out where this request should be forwarded to."
             )
+
+    async def dns_request(self, flow: dns.DNSFlow) -> None:
+        if self.options.dns_mode == "simple":
+            flow.response = await flow.request.resolve()

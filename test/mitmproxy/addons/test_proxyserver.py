@@ -54,12 +54,12 @@ async def test_start_stop():
         tctx.master.addons.add(state)
         async with tcp_server(server_handler) as addr:
             tctx.configure(ps, listen_host="127.0.0.1", listen_port=0)
-            assert not ps.server
+            assert not ps.tcp_server
             await ps.running()
             await tctx.master.await_log("Proxy server listening", level="info")
-            assert ps.server
+            assert ps.tcp_server
 
-            proxy_addr = ps.server.sockets[0].getsockname()[:2]
+            proxy_addr = ps.tcp_server.sockets[0].getsockname()[:2]
             reader, writer = await asyncio.open_connection(*proxy_addr)
             req = f"GET http://{addr[0]}:{addr[1]}/hello HTTP/1.1\r\n\r\n"
             writer.write(req.encode())
@@ -68,7 +68,7 @@ async def test_start_stop():
 
             tctx.configure(ps, server=False)
             await tctx.master.await_log("Stopping server", level="info")
-            assert not ps.server
+            assert not ps.tcp_server
             assert state.flows
             assert state.flows[0].request.path == "/hello"
             assert state.flows[0].response.status_code == 204
@@ -101,7 +101,7 @@ async def test_inject() -> None:
             tctx.configure(ps, listen_host="127.0.0.1", listen_port=0)
             await ps.running()
             await tctx.master.await_log("Proxy server listening", level="info")
-            proxy_addr = ps.server.sockets[0].getsockname()[:2]
+            proxy_addr = ps.tcp_server.sockets[0].getsockname()[:2]
             reader, writer = await asyncio.open_connection(*proxy_addr)
 
             req = f"CONNECT {addr[0]}:{addr[1]} HTTP/1.1\r\n\r\n"

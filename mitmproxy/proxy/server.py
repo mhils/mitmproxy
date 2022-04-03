@@ -15,13 +15,13 @@ import typing
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+import mitmproxy.proxy.udp_server
 from OpenSSL import SSL
 from mitmproxy import http, options as moptions, tls
 from mitmproxy.proxy.context import Context
 from mitmproxy.proxy.layers.http import HTTPMode
 from mitmproxy.proxy import commands, events, layer, layers, server_hooks
 from mitmproxy.connection import Address, Client, Connection, ConnectionProtocol, ConnectionState
-from mitmproxy.net import udp
 from mitmproxy.utils import asyncio_utils
 from mitmproxy.utils import human
 from mitmproxy.utils.data import pkg_data
@@ -67,8 +67,8 @@ class TimeoutWatchdog:
 @dataclass
 class ConnectionIO:
     handler: typing.Optional[asyncio.Task] = None
-    reader: typing.Optional[asyncio.StreamReader] = None
-    writer: typing.Optional[asyncio.StreamWriter] = None
+    reader: typing.Optional[typing.Union[asyncio.StreamReader, "mitmproxy.proxy.udp_server.UdpDatagramReader"]] = None
+    writer: typing.Optional[typing.Union[asyncio.StreamWriter, "mitmproxy.proxy.udp_server.UdpDatagramWriter"]] = None
 
 
 class ConnectionHandler(metaclass=abc.ABCMeta):
@@ -156,7 +156,7 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
                 if command.connection.protocol is ConnectionProtocol.TCP:
                     reader, writer = await asyncio.open_connection(*command.connection.address)
                 elif command.connection.protocol is ConnectionProtocol.UDP:
-                    reader, writer = await udp.open_connection(*command.connection.address)
+                    reader, writer = await mitmproxy.proxy.udp_server.open_connection(*command.connection.address)
                 else:
                     raise NotImplementedError(f"Connection protocol '{command.connection.protocol.name}' is not implemented.")
             except (OSError, asyncio.CancelledError) as e:
@@ -199,11 +199,12 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
                 if not new_handler:
                     return  # this should not be needed, see asyncio_utils.create_task
                 self.transports[command.connection].handler = new_handler
-                await asyncio.wait([new_handler])
-
-                self.log(f"server disconnect {addr}")
-                command.connection.timestamp_end = time.time()
-                await self.handle_hook(server_hooks.ServerDisconnectedHook(hook_data))
+                try:
+                    await new_handler
+                finally:
+                    self.log(f"server disconnect {addr}")
+                    command.connection.timestamp_end = time.time()
+                    await self.handle_hook(server_hooks.ServerDisconnectedHook(hook_data))
 
     async def handle_connection(self, connection: Connection) -> None:
         """
@@ -352,7 +353,7 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
             asyncio_utils.cancel_task(handler, "closed by command")
 
 
-class StreamConnectionHandler(ConnectionHandler, metaclass=abc.ABCMeta):
+class LiveConnectionHandler(ConnectionHandler, metaclass=abc.ABCMeta):
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, options: moptions.Options) -> None:
         client = Client(
             writer.get_extra_info('peername'),
@@ -364,7 +365,7 @@ class StreamConnectionHandler(ConnectionHandler, metaclass=abc.ABCMeta):
         self.transports[client] = ConnectionIO(handler=None, reader=reader, writer=writer)
 
 
-class SimpleConnectionHandler(StreamConnectionHandler):  # pragma: no cover
+class SimpleConnectionHandler(LiveConnectionHandler):  # pragma: no cover
     """Simple handler that does not really process any hooks."""
 
     hook_handlers: typing.Dict[str, typing.Callable]

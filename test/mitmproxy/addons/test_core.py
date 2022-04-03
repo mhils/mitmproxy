@@ -10,9 +10,9 @@ import pytest
 def test_set():
     sa = core.Core()
     with taddons.context(loadcore=False) as tctx:
-        assert tctx.master.options.server
+        assert tctx.master.options.tcp_server
         tctx.command(sa.set, "server", "false")
-        assert not tctx.master.options.server
+        assert not tctx.master.options.tcp_server
 
         with pytest.raises(exceptions.CommandError):
             tctx.command(sa.set, "nonexistent")

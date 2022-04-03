@@ -606,7 +606,11 @@ class Message(BypassInitStateObject):
                 raise ResolveError(ResponseCode.REFUSED)  # we cannot resolve an answer
             if self.op_code is not OpCode.QUERY:
                 raise ResolveError(ResponseCode.NOTIMP)  # inverse queries and others are not supported
-            rrs = [rr for rrs in (await q.resolve() for q in self.questions) for rr in rrs]
+            all_rrs = []
+            for q in self.questions:
+                rrs = await q.resolve()
+                for rr in rrs:
+                    all_rrs.append(rr)
         except ResolveError as e:
             return self.fail(e.response_code)
         else:
