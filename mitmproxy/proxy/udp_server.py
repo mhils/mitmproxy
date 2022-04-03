@@ -1,14 +1,7 @@
 import asyncio
-import logging
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Tuple
-
-from mitmproxy.connection import Client
-from mitmproxy.options import Options
-from mitmproxy.proxy import commands, server
-from mitmproxy.proxy.context import Context
 
 
 class DrainableDatagramProtocol(asyncio.DatagramProtocol):
@@ -67,39 +60,6 @@ class UdpDatagramReader:
         return data
 
 
-class UdpConnectionHandler(server.ConnectionHandler):
-    def __init__(
-        self,
-        peername,
-        transport: asyncio.DatagramTransport,
-        options: Options
-    ) -> None:
-        client = Client(
-            peername,
-            transport.get_extra_info('sockname'),
-            time.time(),
-        )
-        context = Context(client, options)
-        super().__init__(context)
-        self.transports[client] = server.ConnectionIO(
-            handler=None,
-            reader=UdpDatagramReader(),
-            writer=UdpDatagramWriter(transport, peername),
-        )
-
-    def recv_packet(self, data: bytes):
-        try:
-            self.transports[self.client].reader.packet_queue.put_nowait(data)
-        except asyncio.QueueFull:
-            self.log("Discarded UDP packet as buffer is full.", "debug")
-
-    async def handle_hook(
-        self,
-        hook: commands.StartHook
-    ) -> None:
-        print(f"{hook=}")  # FIXME
-
-
 DatagramCallback = Callable[[bytes, tuple[str, int], asyncio.DatagramTransport], None]
 
 
@@ -107,11 +67,8 @@ class UdpServer(DrainableDatagramProtocol):
     transport: asyncio.DatagramTransport
     datagram_callback: DatagramCallback
 
-    # _connections: dict[Hashable, UdpConnectionHandler]
-
     def __init__(self, datagram_callback: DatagramCallback):
         super().__init__()
-        # self._connections = {}
         self.datagram_callback = datagram_callback
 
     def close(self):
@@ -122,27 +79,6 @@ class UdpServer(DrainableDatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         self.datagram_callback(data, addr, self.transport)
-        """
-        id = (*addr, *self.transport.get_extra_info("sockname"))
-        # do more fancy stuff here depending on the protocol.
-        print(f"{data=} {id=}")
-
-        if id not in self._connections:
-            self._connections[id] = handler = UdpConnectionHandler(
-                addr,
-                self.transport,
-                self.options
-            )
-            handler.layer = layers.DNSLayer(self._connections[id].layer.context, layers.dns.DnsMode.Forward)
-            handler.layer.context.server.address = ("8.8.8.8", 53)
-            handler.layer.context.server.protocol = ConnectionProtocol.UDP
-            asyncio_utils.create_task(
-                self.handle_udp_session(id),
-                name="handle_udp_client",
-                client=addr,
-            )
-        self._connections[id].recv_packet(data)
-        """
 
 
 class UdpClient(UdpDatagramReader, DrainableDatagramProtocol):
@@ -175,15 +111,3 @@ async def start_server(
         local_addr=(host, port)
     )
     return server
-
-
-if __name__ == "__main__":
-    async def main():
-        await UdpServer(None).start()
-
-        while True:
-            await asyncio.sleep(1)
-
-
-    logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(main(), debug=True)
