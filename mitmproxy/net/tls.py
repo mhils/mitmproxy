@@ -117,7 +117,7 @@ def _create_ssl_context(
     return context
 
 
-@lru_cache(256)
+# @lru_cache(256)
 def create_proxy_server_context(
     *,
     min_version: Version,
@@ -148,9 +148,10 @@ def create_proxy_server_context(
         param = SSL._lib.SSL_CTX_get0_param(context._context)  # type: ignore
         # Matching on the CN is disabled in both Chrome and Firefox, so we disable it, too.
         # https://www.chromestatus.com/feature/4981025180483584
+        # 2022/05: X509_CHECK_FLAG_NEVER_CHECK_SUBJECT is not available in LibreSSL, falling back gracefully.
         SSL._lib.X509_VERIFY_PARAM_set_hostflags(  # type: ignore
             param,
-            SSL._lib.X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS | SSL._lib.X509_CHECK_FLAG_NEVER_CHECK_SUBJECT,  # type: ignore
+            SSL._lib.X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS | getattr(SSL._lib, "X509_CHECK_FLAG_NEVER_CHECK_SUBJECT", 0),  # type: ignore
         )
         try:
             ip: bytes = ipaddress.ip_address(hostname).packed
@@ -187,7 +188,7 @@ def create_proxy_server_context(
     return context
 
 
-@lru_cache(256)
+# @lru_cache(256)
 def create_client_proxy_context(
     *,
     min_version: Version,
