@@ -41,7 +41,8 @@
   ([#5562](https://github.com/mitmproxy/mitmproxy/pull/5562), @decathorpe, @mhils)
 * Fix mitmweb not properly opening a browser and being stuck on some Linux.
   ([#5522](https://github.com/mitmproxy/mitmproxy/issues/5522), @Prinzhorn)
-
+* Add a quick help bar displaying common key bindings.
+  ([#5381](https://github.com/mitmproxy/mitmproxy/pull/5381/), [#xxxx](https://github.com/mitmproxy/mitmproxy/pull/xxxx), @kckeiks, @mhils).
 
 ## 28 June 2022: mitmproxy 8.1.1
 
