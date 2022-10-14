@@ -4,9 +4,12 @@ from collections.abc import Callable
 
 from mitmproxy.utils import signals
 
+StatusMessage = tuple[str, str] | str
+
 
 # Show a status message in the action bar
-def _status_message(message: tuple[str, str] | str, expire: int | None = None) -> None:
+# Instead of using this signal directly, consider emitting a log event.
+def _status_message(message: StatusMessage, expire: int = 5) -> None:
     ...
 
 

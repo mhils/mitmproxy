@@ -1,18 +1,20 @@
 from __future__ import annotations
-import os.path
+
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Optional
 
 import urwid
 
 import mitmproxy.tools.console.master
-from mitmproxy.tools.console import commandexecutor
+from mitmproxy.tools.console import commandexecutor, flowlist
 from mitmproxy.tools.console import common
 from mitmproxy.tools.console import signals
 from mitmproxy.tools.console.commander import commander
 from mitmproxy.utils import human
 
 
+@lru_cache
 def shorten_message(msg: tuple[str, str] | str, max_width: int) -> list[tuple[str, str]]:
     """
     Shorten message so that it fits into a single line in the statusbar.
@@ -48,46 +50,59 @@ def shorten_message(msg: tuple[str, str] | str, max_width: int) -> list[tuple[st
 class ActionBar(urwid.WidgetWrap):
     def __init__(self, master: mitmproxy.tools.console.master.ConsoleMaster) -> None:
         self.master = master
-        urwid.WidgetWrap.__init__(self, None)
-        self.clear()
+        self.top = urwid.WidgetWrap(urwid.Text(""))
+        self.bottom = urwid.WidgetWrap(urwid.Text(""))
+        super().__init__(urwid.Pile([self.top, self.bottom]))
+        self.show_quickhelp()
         signals.status_message.connect(self.sig_message)
         signals.status_prompt.connect(self.sig_prompt)
         signals.status_prompt_onekey.connect(self.sig_prompt_onekey)
         signals.status_prompt_command.connect(self.sig_prompt_command)
+        master.view.focus.sig_change.connect(self.sig_update)
+        master.view.sig_view_update.connect(self.sig_update)
+
+        # TODO: Detect window changes.
 
         self.prompting: Callable[[str], None] | None = None
 
         self.onekey: set[str] | None = None
+
+    def sig_update(self, flow = None) -> None:
+        if not self.prompting and flow is None or flow == self.master.view.focus.flow:
+                self.show_quickhelp()
 
     def sig_message(self, message: tuple[str, str] | str, expire: int | None = 1) -> None:
         if self.prompting:
             return
         cols, _ = self.master.ui.get_cols_rows()
         w = urwid.Text(shorten_message(message, cols))
-        self._w = w
+        self.top._w = w
+        self.bottom._w = urwid.Text("")
         if expire:
 
             def cb():
-                if w == self._w:
-                    self.clear()
+                if w == self.top._w:
+                    self.show_quickhelp()
 
             signals.call_in.send(seconds=expire, callback=cb)
 
     def sig_prompt(self, prompt: str, text: str | None, callback: Callable[[str], None]) -> None:
         signals.focus.send(section="footer")
-        self._w = urwid.Edit(f"{prompt.strip()}: ", text or "")
+        self.top._w = urwid.Edit(f"{prompt.strip()}: ", text or "")
+        self.bottom._w = urwid.Text("")
         self.prompting = callback
 
     def sig_prompt_command(
         self, partial: str = "", cursor: Optional[int] = None
     ) -> None:
         signals.focus.send(section="footer")
-        self._w = commander.CommandEdit(
+        self.top._w = commander.CommandEdit(
             self.master,
             partial,
         )
         if cursor is not None:
-            self._w.cbuf.cursor = cursor
+            self.top._w.cbuf.cursor = cursor
+        self.bottom._w = urwid.Text("")
         self.prompting = self.execute_command
 
     def execute_command(self, txt: str) -> None:
@@ -111,7 +126,8 @@ class ActionBar(urwid.WidgetWrap):
         parts.extend(mkup)
         parts.append(")? ")
         self.onekey = {i[1] for i in keys}
-        self._w = urwid.Edit(parts, "")
+        self.top._w = urwid.Edit(parts, "")
+        self.bottom._w = urwid.Text("")
         self.prompting = callback
 
     def selectable(self) -> bool:
@@ -127,21 +143,73 @@ class ActionBar(urwid.WidgetWrap):
                 elif k in self.onekey:
                     self.prompt_execute(k)
             elif k == "enter":
-                text = self._w.get_edit_text()
+                text = self.top._w.get_edit_text()
                 self.prompt_execute(text)
             else:
                 if common.is_keypress(k):
-                    self._w.keypress(size, k)
+                    self.top._w.keypress(size, k)
                 else:
                     return k
 
-    def clear(self) -> None:
-        self._w = urwid.Text("")
+    def _items_to_row(self, items: dict[str, str]) -> list[str | tuple[str,str]]:
+        ret = []
+        for (short, long) in items.items():
+            b = self.master.keymap.binding_for_help(long)
+            if b is not None:
+                ret.extend([
+                    ("heading_inactive", b.key_short()),
+                    " ",
+                    short.ljust(12)
+                ])
+        return ret
+
+    def show_quickhelp(self) -> None:
+        try:
+            focus = type(self.master.window.focus_stack().top_widget())
+        except AttributeError:  # on startup
+            focus = flowlist.FlowListBox
+
+        if focus == flowlist.FlowListBox:
+            top_row_items = {}
+            if f := self.master.view.focus.flow:
+                top_row_items |= {
+                    "Select": "Select",
+                    "Duplicate": "Duplicate flow",
+                    "Replay": "Replay this flow",
+                    "Export": "Export this flow to file",
+                    "Delete": "Delete flow from view",
+                    "Mark": "Toggle mark on this flow",
+                }
+                if f.intercepted:
+                    top_row_items["Resume"] = "Resume this intercepted flow"
+                if f.modified():
+                    top_row_items["Restore"] = "Revert changes to this flow"
+            else:
+                top_row_items |= {
+                    "Create new": "Create a new flow",
+                }
+            top_row = ["Flow:  ", *self._items_to_row(top_row_items)]
+        else:
+            top_row = [""]
+
+        bottom_row_items = {
+            "Help": "View help",
+            "Quit": "Exit the current view",
+            "Events": "View event log",
+            "Options": "View options",
+            "Intercept": "Set intercept",
+            "Filter": "Set view filter",
+            "Layout": "Cycle to next layout",
+        }
+        bottom_row = ["Proxy: ", *self._items_to_row(bottom_row_items)]
+
+        self.top._w = urwid.Text(top_row)
+        self.bottom._w = urwid.Text(bottom_row)
 
     def prompt_done(self) -> None:
         self.prompting = None
         self.onekey = None
-        self.clear()
+        self.show_quickhelp()
         signals.focus.send(section="body")
 
     def prompt_execute(self, txt) -> None:
@@ -260,7 +328,10 @@ class StatusBar(urwid.WidgetWrap):
             r.append("[%s]" % (":".join(opts)))
 
         if self.master.options.mode != ["regular"]:
-            r.append(f"[{','.join(self.master.options.mode)}]")
+            if len(self.master.options.mode) == 1:
+                r.append(f"[{self.master.options.mode[0]}]")
+            else:
+                r.append(f"[modes:{len(self.master.options.mode)}]")
         if self.master.options.scripts:
             r.append("[scripts:%s]" % len(self.master.options.scripts))
 
