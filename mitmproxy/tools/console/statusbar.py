@@ -58,6 +58,7 @@ class ActionBar(urwid.WidgetWrap):
         signals.status_prompt.connect(self.sig_prompt)
         signals.status_prompt_onekey.connect(self.sig_prompt_onekey)
         signals.status_prompt_command.connect(self.sig_prompt_command)
+        signals.window_refresh.connect(self.sig_update)
         master.view.focus.sig_change.connect(self.sig_update)
         master.view.sig_view_update.connect(self.sig_update)
 
@@ -156,43 +157,43 @@ class ActionBar(urwid.WidgetWrap):
         for (short, long) in items.items():
             b = self.master.keymap.binding_for_help(long)
             if b is not None:
+                key_short = b.key_short()
                 ret.extend([
-                    ("heading_inactive", b.key_short()),
+                    ("heading_inactive", key_short),
                     " ",
-                    short.ljust(12)
+                    short.ljust(13 - len(key_short))
                 ])
         return ret
 
-    def show_quickhelp(self) -> None:
-        try:
-            focus = type(self.master.window.focus_stack().top_widget())
-        except AttributeError:  # on startup
-            focus = flowlist.FlowListBox
-
-        if focus == flowlist.FlowListBox:
-            top_row_items = {}
+    def quickhelp_items(self, widget) -> tuple[str, dict[str,str], str, dict[str,str]]:
+        top_label = ""
+        top_items = {}
+        if widget == flowlist.FlowListBox:
+            top_label = "Flow:"
             if f := self.master.view.focus.flow:
-                top_row_items |= {
+                top_items |= {
                     "Select": "Select",
                     "Duplicate": "Duplicate flow",
                     "Replay": "Replay this flow",
                     "Export": "Export this flow to file",
                     "Delete": "Delete flow from view",
-                    "Mark": "Toggle mark on this flow",
                 }
+                if f.marked:
+                    top_items["Unmark"] = "Toggle mark on this flow"
+                else:
+                    top_items["Mark"] = "Toggle mark on this flow"
                 if f.intercepted:
-                    top_row_items["Resume"] = "Resume this intercepted flow"
+                    top_items["Resume"] = "Resume this intercepted flow"
                 if f.modified():
-                    top_row_items["Restore"] = "Revert changes to this flow"
+                    top_items["Restore"] = "Revert changes to this flow"
             else:
-                top_row_items |= {
+                top_items |= {
+                    "Load flows": "Load flows from file",
                     "Create new": "Create a new flow",
                 }
-            top_row = ["Flow:  ", *self._items_to_row(top_row_items)]
-        else:
-            top_row = [""]
 
-        bottom_row_items = {
+        bottom_label = "Proxy:"
+        bottom_items = {
             "Help": "View help",
             "Quit": "Exit the current view",
             "Events": "View event log",
@@ -200,8 +201,25 @@ class ActionBar(urwid.WidgetWrap):
             "Intercept": "Set intercept",
             "Filter": "Set view filter",
             "Layout": "Cycle to next layout",
+            "Switch": "Focus next layout pane",
         }
-        bottom_row = ["Proxy: ", *self._items_to_row(bottom_row_items)]
+
+        label_len = max(len(top_label), len(bottom_label)) + 2
+        top_label = top_label.ljust(label_len)
+        bottom_label= bottom_label.ljust(label_len)
+
+        return top_label, top_items, bottom_label, bottom_items
+
+    def show_quickhelp(self) -> None:
+        try:
+            focus = type(self.master.window.focus_stack().top_widget())
+        except AttributeError:  # on startup
+            focus = flowlist.FlowListBox
+
+        top_label, top_items, bottom_label, bottom_items = self.quickhelp_items(focus)
+
+        top_row = [top_label, *self._items_to_row(top_items)]
+        bottom_row = [bottom_label, *self._items_to_row(bottom_items)]
 
         self.top._w = urwid.Text(top_row)
         self.bottom._w = urwid.Text(bottom_row)

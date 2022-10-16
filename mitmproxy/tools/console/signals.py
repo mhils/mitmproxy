@@ -59,5 +59,8 @@ flow_change = signals.SyncSignal(lambda flow: None)
 # Pop and push view state onto a stack
 pop_view_state = signals.SyncSignal(lambda: None)
 
+# Fired when the window state changes
+window_refresh = signals.SyncSignal(lambda: None)
+
 # Fired when the key bindings change
 keybindings_change = signals.SyncSignal(lambda: None)

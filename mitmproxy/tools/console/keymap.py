@@ -62,7 +62,7 @@ class Binding:
         return self.key.replace("space", " ")
 
     def key_short(self) -> str:
-        return self.key.replace("enter", "⏎")
+        return self.key.replace("enter", "⏎").replace("right", "→")
 
     def sortkey(self):
         return self.key + ",".join(self.contexts)
