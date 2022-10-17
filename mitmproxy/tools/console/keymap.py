@@ -133,6 +133,7 @@ class Keymap:
         for c in binding.contexts:
             del self.keys[c][binding.keyspec()]
             self.bindings = [b for b in self.bindings if b != binding]
+        self._on_change()
 
     def get(self, context: str, key: str) -> Optional[Binding]:
         if context in self.keys:

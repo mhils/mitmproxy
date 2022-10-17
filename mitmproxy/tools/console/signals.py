@@ -4,7 +4,8 @@ from collections.abc import Callable
 
 from mitmproxy.utils import signals
 
-StatusMessage = tuple[str, str] | str
+# https://github.com/python/mypy/issues/11098
+StatusMessage = tuple[str, str] | str  # type: ignore
 
 
 # Show a status message in the action bar

@@ -7,7 +7,7 @@ from typing import Optional
 import urwid
 
 import mitmproxy.tools.console.master
-from mitmproxy.tools.console import commandexecutor, flowlist
+from mitmproxy.tools.console import commandexecutor, flowlist, quickhelp
 from mitmproxy.tools.console import common
 from mitmproxy.tools.console import signals
 from mitmproxy.tools.console.commander import commander
@@ -68,9 +68,9 @@ class ActionBar(urwid.WidgetWrap):
 
         self.onekey: set[str] | None = None
 
-    def sig_update(self, flow = None) -> None:
+    def sig_update(self, flow=None) -> None:
         if not self.prompting and flow is None or flow == self.master.view.focus.flow:
-                self.show_quickhelp()
+            self.show_quickhelp()
 
     def sig_message(self, message: tuple[str, str] | str, expire: int | None = 1) -> None:
         if self.prompting:
@@ -152,77 +152,14 @@ class ActionBar(urwid.WidgetWrap):
                 else:
                     return k
 
-    def _items_to_row(self, items: dict[str, str]) -> list[str | tuple[str,str]]:
-        ret = []
-        for (short, long) in items.items():
-            b = self.master.keymap.binding_for_help(long)
-            if b is not None:
-                key_short = b.key_short()
-                ret.extend([
-                    ("heading_inactive", key_short),
-                    " ",
-                    short.ljust(13 - len(key_short))
-                ])
-        return ret
-
-    def quickhelp_items(self, widget) -> tuple[str, dict[str,str], str, dict[str,str]]:
-        top_label = ""
-        top_items = {}
-        if widget == flowlist.FlowListBox:
-            top_label = "Flow:"
-            if f := self.master.view.focus.flow:
-                top_items |= {
-                    "Select": "Select",
-                    "Duplicate": "Duplicate flow",
-                    "Replay": "Replay this flow",
-                    "Export": "Export this flow to file",
-                    "Delete": "Delete flow from view",
-                }
-                if f.marked:
-                    top_items["Unmark"] = "Toggle mark on this flow"
-                else:
-                    top_items["Mark"] = "Toggle mark on this flow"
-                if f.intercepted:
-                    top_items["Resume"] = "Resume this intercepted flow"
-                if f.modified():
-                    top_items["Restore"] = "Revert changes to this flow"
-            else:
-                top_items |= {
-                    "Load flows": "Load flows from file",
-                    "Create new": "Create a new flow",
-                }
-
-        bottom_label = "Proxy:"
-        bottom_items = {
-            "Help": "View help",
-            "Quit": "Exit the current view",
-            "Events": "View event log",
-            "Options": "View options",
-            "Intercept": "Set intercept",
-            "Filter": "Set view filter",
-            "Layout": "Cycle to next layout",
-            "Switch": "Focus next layout pane",
-        }
-
-        label_len = max(len(top_label), len(bottom_label)) + 2
-        top_label = top_label.ljust(label_len)
-        bottom_label= bottom_label.ljust(label_len)
-
-        return top_label, top_items, bottom_label, bottom_items
-
     def show_quickhelp(self) -> None:
         try:
-            focus = type(self.master.window.focus_stack().top_widget())
+            focused_widget = type(self.master.window.focus_stack().top_widget())
         except AttributeError:  # on startup
-            focus = flowlist.FlowListBox
-
-        top_label, top_items, bottom_label, bottom_items = self.quickhelp_items(focus)
-
-        top_row = [top_label, *self._items_to_row(top_items)]
-        bottom_row = [bottom_label, *self._items_to_row(bottom_items)]
-
-        self.top._w = urwid.Text(top_row)
-        self.bottom._w = urwid.Text(bottom_row)
+            focused_widget = flowlist.FlowListBox
+        focused_flow = self.master.view.focus.flow
+        qh = quickhelp.make(focused_widget, focused_flow)
+        self.top._w, self.bottom._w = qh.make_rows(self.master.keymap)
 
     def prompt_done(self) -> None:
         self.prompting = None
