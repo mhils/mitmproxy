@@ -79,6 +79,10 @@ if __name__ == "__main__":
     subprocess.run(["git", "config", "user.name", "mitmproxy release bot"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-a", "-m", f"mitmproxy {version}"], cwd=root, check=True)
     subprocess.run(["git", "tag", version], cwd=root, check=True)
+    release_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
 
     if branch == "main":
         print("➡️ Bump version...")
@@ -105,54 +109,50 @@ if __name__ == "__main__":
     # subprocess.run(["gh", "workflow", "run", "main.yml", "--ref", version], cwd=root, check=True)
 
     print("")
-    print("✅ CI is running now. Make sure to approve the deploy step: https://github.com/mitmproxy/mitmproxy/actions")
+    print("✅ CI is running now.")
 
-    for _ in range(60):
-        time.sleep(3)
-        print(".", end="")
-    print("")
+    while True:
+        print("Waiting for CI...")
+        workflows = get_json(f"https://api.github.com/repos/mitmproxy/mitmproxy/actions/runs?head_sha={release_sha}")["workflow_runs"]
+        if not workflows:
+            print("No workflow runs yet.")
+            time.sleep(10)
+            continue
+        for workflow in workflows:
+            if workflow["status"] == "waiting":
+                print(f"⚠️ CI is waiting for approval: {workflow['html_url']}")
+            if workflow["status"] != "completed":
+                time.sleep(10)
+                continue
+
+        for workflow in workflows:
+            if workflow["conclusion"] != "success":
+                print(f"⚠️ {workflow['display_title']} workflow run failed.")
+        break
 
     print("➡️ Checking GitHub Releases...")
     resp = get(f"https://api.github.com/repos/mitmproxy/mitmproxy/releases/tags/{version}")
     assert resp.status == 200
 
-    while True:
-        print("➡️ Checking PyPI...")
-        pypi_data = get_json("https://pypi.org/pypi/mitmproxy/json")
-        if version in pypi_data["releases"]:
-            print(f"{version} is on PyPI.")
-            break
-        else:
-            print(f"{version} not yet on PyPI.")
-            time.sleep(10)
+    print("➡️ Checking PyPI...")
+    pypi_data = get_json("https://pypi.org/pypi/mitmproxy/json")
+    assert version in pypi_data["releases"]
 
-    while True:
-        print("➡️ Checking docs archive...")
-        resp = get(f"https://docs.mitmproxy.org/archive/v{major_version}/")
-        if resp.status == 200:
-            break
-        else:
-            time.sleep(10)
+    print("➡️ Checking docs archive...")
+    resp = get(f"https://docs.mitmproxy.org/archive/v{major_version}/")
+    assert resp.status == 200
 
-    while True:
-        print(f"➡️ Checking Docker ({version} tag)...")
-        resp = get(f"https://hub.docker.com/v2/repositories/mitmproxy/mitmproxy/tags/{version}")
-        if resp.status == 200:
-            break
-        else:
-            time.sleep(10)
+    print(f"➡️ Checking Docker ({version} tag)...")
+    resp = get(f"https://hub.docker.com/v2/repositories/mitmproxy/mitmproxy/tags/{version}")
+    assert resp.status == 200
 
     if branch == "main":
-        while True:
-            print("➡️ Checking Docker (latest tag)...")
-            docker_latest_data = get_json("https://hub.docker.com/v2/repositories/mitmproxy/mitmproxy/tags/latest")
-            docker_last_updated = datetime.datetime.fromisoformat(
-                docker_latest_data["last_updated"].replace("Z", "+00:00"))
-            print(f"Last update: {docker_last_updated.isoformat(timespec='minutes')}")
-            if docker_last_updated > datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2):
-                break
-            else:
-                time.sleep(10)
+        print("➡️ Checking Docker (latest tag)...")
+        docker_latest_data = get_json("https://hub.docker.com/v2/repositories/mitmproxy/mitmproxy/tags/latest")
+        docker_last_updated = datetime.datetime.fromisoformat(
+            docker_latest_data["last_updated"].replace("Z", "+00:00"))
+        print(f"Last update: {docker_last_updated.isoformat(timespec='minutes')}")
+        assert docker_last_updated > datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2)
 
     print("")
     print("✅ All done. 🥳")
