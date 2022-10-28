@@ -4,6 +4,10 @@
 
 
 
+## 28 October 2022: mitmproxy 8.0.99991
+
+
+
 ## 28 October 2022: mitmproxy 8.0.9999
 
 ### Major Features
