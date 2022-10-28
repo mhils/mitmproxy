@@ -42,6 +42,7 @@ if __name__ == "__main__":
 
     # changing this is useful for testing on a fork.
     repo = os.environ.get("GITHUB_ACTION_REPOSITORY", "mitmproxy/mitmproxy")
+    print(f"{version=} {skip_branch_status_check=} {repo=}")
 
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
