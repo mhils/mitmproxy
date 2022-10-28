@@ -2,6 +2,7 @@
 import datetime
 import http.client
 import json
+import os
 import re
 import subprocess
 import sys
@@ -39,6 +40,9 @@ if __name__ == "__main__":
 
     skip_branch_status_check = sys.argv[2] == "true"
 
+    # changing this is useful for testing on a fork.
+    repo = os.environ.get("GITHUB_ACTION_REPOSITORY", "mitmproxy/mitmproxy")
+
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
         cwd=root, check=True, capture_output=True, text=True
@@ -51,7 +55,7 @@ if __name__ == "__main__":
         print(f"⚠️ Skipping status check for {branch}.")
     else:
         print(f"➡️ CI is passing for {branch}?")
-        assert get_json(f"https://api.github.com/repos/mitmproxy/mitmproxy/commits/{branch}/status")["state"] == "success"
+        assert get_json(f"https://api.github.com/repos/{repo}/commits/{branch}/status")["state"] == "success"
 
     print("➡️ Updating CHANGELOG.md...")
     changelog = root / "CHANGELOG.md"
@@ -113,7 +117,7 @@ if __name__ == "__main__":
 
     while True:
         print("Waiting for CI...")
-        workflows = get_json(f"https://api.github.com/repos/mitmproxy/mitmproxy/actions/runs?head_sha={release_sha}")["workflow_runs"]
+        workflows = get_json(f"https://api.github.com/repos/{repo}/actions/runs?head_sha={release_sha}")["workflow_runs"]
         if not workflows:
             print("No workflow runs yet.")
             time.sleep(10)
@@ -131,7 +135,7 @@ if __name__ == "__main__":
         break
 
     print("➡️ Checking GitHub Releases...")
-    resp = get(f"https://api.github.com/repos/mitmproxy/mitmproxy/releases/tags/{version}")
+    resp = get(f"https://api.github.com/repos/{repo}/releases/tags/{version}")
     assert resp.status == 200
 
     print("➡️ Checking PyPI...")
