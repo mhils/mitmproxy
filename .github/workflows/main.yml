@@ -236,6 +236,12 @@ jobs:
       - uses: docker/setup-buildx-action@b1f1f719c7cd5364be7c82e366366da322d01f7c # v1.6.0
       - run: python release/build-and-deploy-docker.py
 
+  test-deploy:
+    runs-on: ubuntu-latest
+    environment: deploy-release
+    steps:
+      - run: echo ok
+
   deploy:
     # This action has access to our AWS keys, so we are extra careful here.
     # In particular, we don't blindly `pip install` anything to minimize the risk of supply chain attacks.
