@@ -120,21 +120,23 @@ if __name__ == "__main__":
         print("Waiting for CI...")
         workflows = get_json(f"https://api.github.com/repos/{repo}/actions/runs?head_sha={release_sha}")["workflow_runs"]
         print(f"{workflows=}")
+
+        all_done = True
         if not workflows:
-            print("No workflow runs yet.")
-            time.sleep(10)
-            continue
+            all_done = False  # we expect to have at least one workflow.
         for workflow in workflows:
+            if workflow["status"] != "completed":
+                all_done = False
             if workflow["status"] == "waiting":
                 print(f"⚠️ CI is waiting for approval: {workflow['html_url']}")
-            if workflow["status"] != "completed":
-                time.sleep(10)
-                continue
 
-        for workflow in workflows:
-            if workflow["conclusion"] != "success":
-                print(f"⚠️ {workflow['display_title']} workflow run failed.")
-        break
+        if all_done:
+            for workflow in workflows:
+                if workflow["conclusion"] != "success":
+                    print(f"⚠️ {workflow['display_title']} workflow run failed.")
+            break
+        else:
+            time.sleep(10)
 
     print("➡️ Checking GitHub Releases...")
     resp = get(f"https://api.github.com/repos/{repo}/releases/tags/{version}")
