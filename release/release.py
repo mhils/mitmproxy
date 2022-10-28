@@ -119,6 +119,7 @@ if __name__ == "__main__":
     while True:
         print("Waiting for CI...")
         workflows = get_json(f"https://api.github.com/repos/{repo}/actions/runs?head_sha={release_sha}")["workflow_runs"]
+        print(f"{workflows=}")
         if not workflows:
             print("No workflow runs yet.")
             time.sleep(10)
