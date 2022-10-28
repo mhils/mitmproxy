@@ -41,7 +41,7 @@ if __name__ == "__main__":
     skip_branch_status_check = sys.argv[2] == "true"
 
     # changing this is useful for testing on a fork.
-    repo = os.environ.get("GITHUB_ACTION_REPOSITORY", "mitmproxy/mitmproxy")
+    repo = os.environ.get("GITHUB_REPOSITORY", "mitmproxy/mitmproxy")
     print(f"{version=} {skip_branch_status_check=} {repo=}")
 
     branch = subprocess.run(
