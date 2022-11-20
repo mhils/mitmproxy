@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import ClassVar, Generic, TypeVar, cast, get_args
 
 import errno
-import mitmproxy_wireguard as wg
+import mitmproxy_rs
 
 from mitmproxy import ctx, flow, platform
 from mitmproxy.connection import Address
@@ -136,8 +136,8 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
 
     async def handle_tcp_connection(
         self,
-        reader: asyncio.StreamReader | wg.TcpStream,
-        writer: asyncio.StreamWriter | wg.TcpStream,
+        reader: asyncio.StreamReader | mitmproxy_rs.TcpStream,
+        writer: asyncio.StreamWriter | mitmproxy_rs.TcpStream,
     ) -> None:
         handler = ProxyConnectionHandler(
             ctx.master, reader, writer, ctx.options, self.mode
@@ -156,6 +156,11 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
                 handler.layer.context.server.address = original_dst
         elif isinstance(self.mode, mode_specs.WireGuardMode):
             original_dst = writer.get_extra_info("original_dst")
+            handler.layer.context.client.sockname = original_dst
+            handler.layer.context.server.address = original_dst
+        elif isinstance(self.mode, mode_specs.OsProxyMode):
+            original_dst = writer.get_extra_info("original_dst")
+            assert original_dst
             handler.layer.context.client.sockname = original_dst
             handler.layer.context.server.address = original_dst
 
@@ -186,6 +191,8 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
             handler.layer.context.client.transport_protocol = "udp"
             handler.layer.context.server.transport_protocol = "udp"
             if isinstance(self.mode, mode_specs.WireGuardMode):
+                handler.layer.context.server.address = local_addr
+            if isinstance(self.mode, mode_specs.OsProxyMode):
                 handler.layer.context.server.address = local_addr
 
             # pre-register here - we may get datagrams before the task is executed.
@@ -283,7 +290,7 @@ class AsyncioServerInstance(ServerInstance[M], metaclass=ABCMeta):
 
 
 class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
-    _server: wg.Server | None = None
+    _server: mitmproxy_rs.WireGuardServer | None = None
     _listen_addrs: tuple[Address, ...] = tuple()
 
     server_key: str
@@ -310,8 +317,8 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
             if not conf_path.exists():
                 conf_path.parent.mkdir(parents=True, exist_ok=True)
                 conf_path.write_text(json.dumps({
-                    "server_key": wg.genkey(),
-                    "client_key": wg.genkey(),
+                    "server_key": mitmproxy_rs.genkey(),
+                    "client_key": mitmproxy_rs.genkey(),
                 }, indent=4))
 
             try:
@@ -321,10 +328,10 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
             except Exception as e:
                 raise ValueError(f"Invalid configuration file ({conf_path}): {e}") from e
             # error early on invalid keys
-            p = wg.pubkey(self.client_key)
-            _ = wg.pubkey(self.server_key)
+            p = mitmproxy_rs.pubkey(self.client_key)
+            _ = mitmproxy_rs.pubkey(self.server_key)
 
-            self._server = await wg.start_server(
+            self._server = await mitmproxy_rs.start_server(
                 host,
                 port,
                 self.server_key,
@@ -362,7 +369,7 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
             DNS = 10.0.0.53
 
             [Peer]
-            PublicKey = {wg.pubkey(self.server_key)}
+            PublicKey = {mitmproxy_rs.pubkey(self.server_key)}
             AllowedIPs = 0.0.0.0/0
             Endpoint = {host}:{port}
             """).strip()
@@ -388,6 +395,61 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
         return self._listen_addrs
 
     async def wg_handle_tcp_connection(self, stream: wg.TcpStream) -> None:
+        await self.handle_tcp_connection(stream, stream)
+
+    def wg_handle_udp_datagram(self, data: bytes, remote_addr: Address, local_addr: Address) -> None:
+        assert self._server is not None
+        transport = WireGuardDatagramTransport(self._server, local_addr, remote_addr)
+        self.handle_udp_datagram(
+            transport,
+            data,
+            remote_addr,
+            local_addr
+        )
+
+
+class OsProxyInstance(ServerInstance[mode_specs.OsProxyMode]):
+    _server: mitmproxy_rs.WindowsProxy | None = None
+
+
+    def make_top_layer(self, context: Context) -> Layer:
+        return layers.modes.TransparentProxy(context)
+
+    @property
+    def is_running(self) -> bool:
+        return self._server is not None
+
+    async def start(self) -> None:
+        assert self._server is None
+
+        try:
+            self._server = await mitmproxy_rs.start_windows_transparent_proxy(
+                self.wg_handle_tcp_connection,
+                self.wg_handle_udp_datagram,
+            )
+        except Exception as e:
+            self.last_exception = e
+            message = f"{self.mode.description} failed to start with {e}"
+            raise OSError(message) from e
+        else:
+            self.last_exception = None
+
+
+    async def stop(self) -> None:
+        print("STOPPING")
+        assert self._server is not None
+        self._server.close()
+        await self._server.wait_closed()
+        self._server = None
+        self.last_exception = None
+
+        logger.info(f"Stopped {self.mode.description}.")
+
+    @property
+    def listen_addrs(self) -> tuple[Address, ...]:
+        return tuple()
+
+    async def wg_handle_tcp_connection(self, stream: mitmproxy_rs.TcpStream) -> None:
         await self.handle_tcp_connection(stream, stream)
 
     def wg_handle_udp_datagram(self, data: bytes, remote_addr: Address, local_addr: Address) -> None:

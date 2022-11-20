@@ -80,7 +80,7 @@ class ProxyMode(Serializable, metaclass=ABCMeta):
 
     @property
     @abstractmethod
-    def transport_protocol(self) -> Literal["tcp", "udp"]:
+    def transport_protocol(self) -> Literal["tcp", "udp"] | None:
         """The transport protocol used by this mode's server."""
 
     @classmethod
@@ -253,6 +253,14 @@ class WireGuardMode(ProxyMode):
     description = "WireGuard server"
     default_port = 51820
     transport_protocol = UDP
+
+    def __post_init__(self) -> None:
+        pass
+
+class OsProxyMode(ProxyMode):
+    """OS-level transparent proxy."""
+    description = "OS proxy"
+    transport_protocol = None
 
     def __post_init__(self) -> None:
         pass

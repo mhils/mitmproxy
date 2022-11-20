@@ -1,17 +1,18 @@
 """
 This module contains a mock DatagramTransport for use with mitmproxy-wireguard.
 """
+from __future__ import annotations
 import asyncio
 from typing import Any
 
-import mitmproxy_wireguard as wg
+import mitmproxy_rs
 
 from mitmproxy.connection import Address
 
 
 class WireGuardDatagramTransport(asyncio.DatagramTransport):
-    def __init__(self, server: wg.Server, local_addr: Address, remote_addr: Address):
-        self._server: wg.Server = server
+    def __init__(self, server: mitmproxy_rs.WireGuardServer | mitmproxy_rs.WindowsProxy, local_addr: Address, remote_addr: Address):
+        self._server: mitmproxy_rs.WireGuardServer | mitmproxy_rs.WindowsProxy = server
         self._local_addr: Address = local_addr
         self._remote_addr: Address = remote_addr
         super().__init__()
@@ -21,7 +22,10 @@ class WireGuardDatagramTransport(asyncio.DatagramTransport):
 
     def get_extra_info(self, name: str, default: Any = None) -> Any:
         if name == "sockname":
-            return self._server.getsockname()
+            if isinstance(self._server, mitmproxy_rs.WireGuardServer):
+                return self._server.getsockname()
+            else:
+                return ("0.0.0.0", 0)
         else:
             raise NotImplementedError
 
