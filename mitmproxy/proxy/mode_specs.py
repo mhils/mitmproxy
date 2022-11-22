@@ -23,6 +23,7 @@ Examples:
 from __future__ import annotations
 
 import dataclasses
+import re
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 from functools import cache
@@ -263,4 +264,5 @@ class OsProxyMode(ProxyMode):
     transport_protocol = None
 
     def __post_init__(self) -> None:
-        pass
+        if not re.fullmatch(r"(\d+(,\d+)*)?", self.data):
+            raise ValueError("OS proxy spec must be a list of pids separated by commas.")
