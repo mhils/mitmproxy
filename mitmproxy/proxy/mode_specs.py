@@ -264,5 +264,4 @@ class OsProxyMode(ProxyMode):
     transport_protocol = None
 
     def __post_init__(self) -> None:
-        if not re.fullmatch(r"(\d+(,\d+)*)?", self.data):
-            raise ValueError("OS proxy spec must be a list of pids separated by commas.")
+        pass
