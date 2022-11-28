@@ -9,6 +9,7 @@ interface _Flow {
     modified: boolean
     marked: string
     comment: string
+    metadata: { [s: string]: any }
     timestamp_created: number
     client_conn: Client
     server_conn?: Server

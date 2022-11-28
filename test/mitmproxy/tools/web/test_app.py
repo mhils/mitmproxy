@@ -55,6 +55,8 @@ def test_generate_tflow_js(tdata):
 
     tf_tcp = tflow.ttcpflow(err=True)
     tf_tcp.id = "2ea7012b-21b5-4f8f-98cd-d49819954001"
+    tf_tcp.metadata["quic_stream_id_server"] = 10
+    tf_tcp.metadata["quic_initiator"] = "client"
     tf_tcp.client_conn.id = "8be32b99-a0b3-446e-93bc-b29982fe1322"
     tf_tcp.server_conn.id = "e33bb2cd-c07e-4214-9a8e-3a8f85f25200"
 

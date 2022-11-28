@@ -85,6 +85,26 @@ function attrList(data: [string, string][]): JSX.Element {
     </dl>
 }
 
+export function Metadata({flow}: { flow: Flow }): JSX.Element {
+    const meta = flow.metadata;
+    if (!meta || Object.keys(meta).length === 0)
+        return <></>;
+
+    return <>
+        <h4 key="name">Metadata</h4>
+        <table className="metadata-table">
+            <tbody>
+            {
+                Object.entries(meta).map(([k, v]) => <tr key={k}>
+                    <td>{k}</td>
+                    <td>{JSON.stringify(v)}</td>
+                </tr>)
+            }
+            </tbody>
+        </table>
+    </>
+}
+
 export function CertificateInfo({flow}: { flow: Flow }): JSX.Element {
     const cert = flow.server_conn?.cert;
     if (!cert)
@@ -144,6 +164,8 @@ export default function Connection({flow}: { flow: Flow }) {
                     <ConnectionInfo conn={flow.server_conn}/>
                 </>
             }
+
+            <Metadata flow={flow}/>
 
             <CertificateInfo flow={flow}/>
         </section>
