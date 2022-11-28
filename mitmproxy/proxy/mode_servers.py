@@ -424,7 +424,6 @@ class OsProxyInstance(ServerInstance[mode_specs.OsProxyMode]):
 
         try:
             self._server = await mitmproxy_rs.start_windows_transparent_proxy(
-                r"C:\Users\user\git\mitmproxy-wireguard\target\debug\windows-redirector.exe",
                 self.wg_handle_tcp_connection,
                 self.wg_handle_udp_datagram,
             )
