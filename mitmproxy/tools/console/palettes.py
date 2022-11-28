@@ -179,7 +179,7 @@ class LowDark(Palette):
         scheme_wss=("dark magenta", "default"),
         scheme_tcp=("dark magenta", "default"),
         scheme_udp=("dark magenta", "default"),
-        scheme_dns=("dark blue", "default"),
+        scheme_dns=("light blue", "default"),
         scheme_other=("dark magenta", "default"),
         url_punctuation=("light gray", "default"),
         url_domain=("white", "default"),

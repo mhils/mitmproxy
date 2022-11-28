@@ -328,7 +328,7 @@ class StatusBar(urwid.WidgetWrap):
             urwid.Columns(
                 [
                     urwid.Text(t),
-                    urwid.Text(boundaddr, align="right"),
+                    (len(boundaddr), urwid.Text(boundaddr, align="right")),
                 ]
             ),
             "heading",
