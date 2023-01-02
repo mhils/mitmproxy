@@ -167,13 +167,16 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
                 handler.layer.context.client.sockname = original_dst
                 handler.layer.context.server.address = original_dst
         elif isinstance(self.mode, (mode_specs.WireGuardMode, mode_specs.OsProxyMode)):
-            print(f"FIXME: {self.mode=}\n"
+            print(f"FIXME TCP: {self.mode=}\n"
                   f"{handler.layer.context.client.sockname=}\n"
                   f"{handler.layer.context.client.peername=}\n"
                   f"{reader.get_extra_info('sockname')=}\n"
                   f"{reader.get_extra_info('peername')=}\n"
                   f"{reader.get_extra_info('original_src')=}\n"
-                  f"{reader.get_extra_info('original_dst')=}\n")
+                  f"{reader.get_extra_info('original_dst')=}\n"
+                  f"{reader.get_extra_info('pid', None)=}\n"
+                  f"{reader.get_extra_info('process_name', None)=}\n"
+                  )
             handler.layer.context.server.address = handler.layer.context.client.sockname
 
         connection_id = (
@@ -202,14 +205,17 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
             handler.layer = self.make_top_layer(handler.layer.context)
             handler.layer.context.client.transport_protocol = "udp"
             handler.layer.context.server.transport_protocol = "udp"
-            if isinstance(self.mode, mode_specs.WireGuardMode):
-                handler.layer.context.server.address = local_addr
-            if isinstance(self.mode, mode_specs.OsProxyMode):
-                print(f"FIXME: OsProxy UDP\n"
-                      f"{transport.get_extra_info('peername')=}\n"
+            if isinstance(self.mode, (mode_specs.WireGuardMode, mode_specs.OsProxyMode)):
+                print(f"FIXME UDP: {self.mode=}\n"
+                      f"{handler.layer.context.client.sockname=}\n"
+                      f"{handler.layer.context.client.peername=}\n"
                       f"{transport.get_extra_info('sockname')=}\n"
+                      f"{transport.get_extra_info('peername')=}\n"
                       f"{transport.get_extra_info('original_src')=}\n"
-                      f"{transport.get_extra_info('original_dst')=}\n")
+                      f"{transport.get_extra_info('original_dst')=}\n"
+                      f"{transport.get_extra_info('pid', None)=}\n"
+                      f"{transport.get_extra_info('process_name', None)=}\n"
+                      )
                 handler.layer.context.server.address = local_addr
 
             # pre-register here - we may get datagrams before the task is executed.
