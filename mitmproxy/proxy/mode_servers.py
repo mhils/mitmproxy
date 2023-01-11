@@ -15,6 +15,7 @@ import asyncio
 import errno
 import json
 import logging
+import os
 import socket
 import textwrap
 import typing
@@ -22,11 +23,11 @@ from abc import ABCMeta
 from abc import abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
-from typing import cast
 from typing import ClassVar
 from typing import Generic
-from typing import get_args
 from typing import TypeVar
+from typing import cast
+from typing import get_args
 
 import mitmproxy_rs
 
@@ -85,10 +86,11 @@ Self = TypeVar("Self", bound="ServerInstance")
 class ServerInstance(Generic[M], metaclass=ABCMeta):
     __modes: ClassVar[dict[str, type[ServerInstance]]] = {}
 
+    last_exception: Exception | None = None
+
     def __init__(self, mode: M, manager: ServerManager):
         self.mode: M = mode
         self.manager: ServerManager = manager
-        self.last_exception: Exception | None = None
 
     def __init_subclass__(cls, **kwargs):
         """Register all subclasses so that make() finds them."""
@@ -119,12 +121,41 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
     def is_running(self) -> bool:
         pass
 
-    @abstractmethod
     async def start(self) -> None:
+        try:
+            await self._start()
+        except Exception as e:
+            self.last_exception = e
+            raise
+        else:
+            self.last_exception = None
+        if self.listen_addrs:
+            addrs = " and ".join({human.format_address(a) for a in self._listen_addrs})
+            logger.info(f"{self.mode.description} listening at {addrs}.")
+        else:
+            logger.info(f"{self.mode.description} started.")
+
+    async def stop(self) -> None:
+        listen_addrs = self.listen_addrs
+        try:
+            await self._stop()
+        except Exception as e:
+            self.last_exception = e
+            raise
+        else:
+            self.last_exception = None
+        if listen_addrs:
+            addrs = " and ".join({human.format_address(a) for a in listen_addrs})
+            logger.info(f"Stopped {self.mode.description} at {addrs}.")
+        else:
+            logger.info(f"Stopped {self.mode.description}.")
+
+    @abstractmethod
+    async def _start(self) -> None:
         pass
 
     @abstractmethod
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         pass
 
     @property
@@ -235,13 +266,19 @@ class ServerInstance(Generic[M], metaclass=ABCMeta):
 
 class AsyncioServerInstance(ServerInstance[M], metaclass=ABCMeta):
     _server: asyncio.Server | udp.UdpServer | None = None
-    _listen_addrs: tuple[Address, ...] = tuple()
 
     @property
     def is_running(self) -> bool:
         return self._server is not None
 
-    async def start(self) -> None:
+    @property
+    def listen_addrs(self) -> tuple[Address, ...]:
+        if self._server is not None:
+            return tuple(s.getsockname() for s in self._server.sockets)
+        else:
+            return tuple()
+
+    async def _start(self) -> None:
         assert self._server is None
         host = self.mode.listen_host(ctx.options.listen_host)
         port = self.mode.listen_port(ctx.options.listen_port)
@@ -249,7 +286,6 @@ class AsyncioServerInstance(ServerInstance[M], metaclass=ABCMeta):
             self._server = await self.listen(host, port)
             self._listen_addrs = tuple(s.getsockname() for s in self._server.sockets)
         except OSError as e:
-            self.last_exception = e
             message = f"{self.mode.description} failed to listen on {host or '*'}:{port} with {e}"
             if e.errno == errno.EADDRINUSE and self.mode.custom_listen_port is None:
                 assert (
@@ -257,31 +293,15 @@ class AsyncioServerInstance(ServerInstance[M], metaclass=ABCMeta):
                 )  # since [@ [listen_addr:]listen_port]
                 message += f"\nTry specifying a different port by using `--mode {self.mode.full_spec}@{port + 1}`."
             raise OSError(e.errno, message, e.filename) from e
-        except Exception as e:
-            self.last_exception = e
-            raise
-        else:
-            self.last_exception = None
-        addrs = " and ".join({human.format_address(a) for a in self._listen_addrs})
-        logger.info(f"{self.mode.description} listening at {addrs}.")
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         assert self._server is not None
-        # we always reset _server and _listen_addrs and ignore failures
-        server = self._server
-        listen_addrs = self._listen_addrs
-        self._server = None
-        self._listen_addrs = tuple()
         try:
             server.close()
             await server.wait_closed()
-        except Exception as e:
-            self.last_exception = e
-            raise
-        else:
-            self.last_exception = None
-        addrs = " and ".join({human.format_address(a) for a in listen_addrs})
-        logger.info(f"Stopped {self.mode.description} at {addrs}.")
+        finally:
+            # we always reset _server and ignore failures
+            self._server = None
 
     async def listen(self, host: str, port: int) -> asyncio.Server | udp.UdpServer:
         if self.mode.transport_protocol == "tcp":
@@ -315,14 +335,9 @@ class AsyncioServerInstance(ServerInstance[M], metaclass=ABCMeta):
         else:
             raise AssertionError(self.mode.transport_protocol)
 
-    @property
-    def listen_addrs(self) -> tuple[Address, ...]:
-        return self._listen_addrs
-
 
 class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
     _server: mitmproxy_rs.WireGuardServer | None = None
-    _listen_addrs: tuple[Address, ...] = tuple()
 
     server_key: str
     client_key: str
@@ -334,7 +349,14 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
     def is_running(self) -> bool:
         return self._server is not None
 
-    async def start(self) -> None:
+    @property
+    def listen_addrs(self) -> tuple[Address, ...]:
+        if self._server:
+            return (self._server.getsockname(),)
+        else:
+            return tuple()
+
+    async def _start(self) -> None:
         assert self._server is None
         host = self.mode.listen_host(ctx.options.listen_host)
         port = self.mode.listen_port(ctx.options.listen_port)
@@ -344,51 +366,42 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
         else:
             conf_path = Path(ctx.options.confdir).expanduser() / "wireguard.conf"
 
-        try:
-            if not conf_path.exists():
-                conf_path.parent.mkdir(parents=True, exist_ok=True)
-                conf_path.write_text(
-                    json.dumps(
-                        {
-                            "server_key": mitmproxy_rs.genkey(),
-                            "client_key": mitmproxy_rs.genkey(),
-                        },
-                        indent=4,
-                    )
+        if not conf_path.exists():
+            conf_path.parent.mkdir(parents=True, exist_ok=True)
+            conf_path.write_text(
+                json.dumps(
+                    {
+                        "server_key": mitmproxy_rs.genkey(),
+                        "client_key": mitmproxy_rs.genkey(),
+                    },
+                    indent=4,
                 )
-
-            try:
-                c = json.loads(conf_path.read_text())
-                self.server_key = c["server_key"]
-                self.client_key = c["client_key"]
-            except Exception as e:
-                raise ValueError(
-                    f"Invalid configuration file ({conf_path}): {e}"
-                ) from e
-            # error early on invalid keys
-            p = mitmproxy_rs.pubkey(self.client_key)
-            _ = mitmproxy_rs.pubkey(self.server_key)
-
-            self._server = await mitmproxy_rs.start_wireguard_server(
-                host,
-                port,
-                self.server_key,
-                [p],
-                self.wg_handle_tcp_connection,
-                self.handle_udp_datagram,
             )
-            self._listen_addrs = (self._server.getsockname(),)
-        except Exception as e:
-            self.last_exception = e
-            raise OSError(f"{self.mode.description} failed to listen on {host or '*'}:{port} with {e}") from e
-        else:
-            self.last_exception = None
 
-        addrs = " and ".join({human.format_address(a) for a in self.listen_addrs})
+        try:
+            c = json.loads(conf_path.read_text())
+            self.server_key = c["server_key"]
+            self.client_key = c["client_key"]
+        except Exception as e:
+            raise ValueError(
+                f"Invalid configuration file ({conf_path}): {e}"
+            ) from e
+        # error early on invalid keys
+        p = mitmproxy_rs.pubkey(self.client_key)
+        _ = mitmproxy_rs.pubkey(self.server_key)
+
+        self._server = await mitmproxy_rs.start_wireguard_server(
+            host,
+            port,
+            self.server_key,
+            [p],
+            self.wg_handle_tcp_connection,
+            self.handle_udp_datagram,
+        )
+
         conf = self.client_conf()
         assert conf
         logger.info(
-            f"{self.mode.description} listening at {addrs}.\n"
             + "------------------------------------------------------------\n"
             + conf
             + "\n------------------------------------------------------------"
@@ -416,64 +429,83 @@ class WireGuardServerInstance(ServerInstance[mode_specs.WireGuardMode]):
     def to_json(self) -> dict:
         return {"wireguard_conf": self.client_conf(), **super().to_json()}
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         assert self._server is not None
-        self._server.close()
-        await self._server.wait_closed()
-        self._server = None
-        self.last_exception = None
-
-        addrs = " and ".join({human.format_address(a) for a in self.listen_addrs})
-        logger.info(f"Stopped {self.mode.description} at {addrs}.")
-
-    @property
-    def listen_addrs(self) -> tuple[Address, ...]:
-        return self._listen_addrs
+        try:
+            self._server.close()
+            await self._server.wait_closed()
+        finally:
+            self._server = None
 
     async def wg_handle_tcp_connection(self, stream: mitmproxy_rs.TcpStream) -> None:
         await self.handle_tcp_connection(stream, stream)
 
 
 class OsProxyInstance(ServerInstance[mode_specs.OsProxyMode]):
-    _server: mitmproxy_rs.WindowsProxy | None = None
+    _server: ClassVar[mitmproxy_rs.WindowsProxy | None] = None
+    listen_addrs = ()
+    _instance: OsProxyInstance | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._instance is not None
 
     def make_top_layer(self, context: Context) -> Layer:
         return layers.modes.TransparentProxy(context)
 
-    @property
-    def is_running(self) -> bool:
-        return self._server is not None
+    @classmethod
+    async def _start_server(cls) -> None:
+        assert cls._server is None
+        cls._server = await mitmproxy_rs.start_windows_proxy(
+            cls.os_handle_tcp_connection,
+            cls.os_handle_datagram,
+        )
 
-    async def start(self) -> None:
-        assert self._server is None
+    @classmethod
+    async def os_handle_tcp_connection(cls, stream: mitmproxy_rs.TcpStream) -> None:
+        if cls._instance is not None:
+            await cls._instance.handle_tcp_connection(stream, stream)
 
-        try:
-            self._server = await mitmproxy_rs.start_windows_proxy(
-                self.wg_handle_tcp_connection,
-                self.handle_udp_datagram,
+    @classmethod
+    def os_handle_datagram(
+        cls,
+        transport: asyncio.DatagramTransport,
+        data: bytes,
+        remote_addr: Address,
+        local_addr: Address,
+    ) -> None:
+        print("BBBB")
+        if cls._instance is not None:
+            cls._instance.handle_udp_datagram(
+                transport=transport,
+                data=data,
+                remote_addr=remote_addr,
+                local_addr=local_addr,
             )
-            self._server.set_intercept(self.mode.data)
-        except Exception as e:
-            self.last_exception = e
-            raise OSError(f"{self.mode.description} failed to start: {e}") from e
+
+    async def _start(self) -> None:
+        if os.name != "nt":
+            raise ValueError("OS proxy mode currently supports Windows only.")
+        if self._instance:
+            raise RuntimeError("Cannot spawn more than one OS proxy instance.")
+        if self._server is None:
+            await self._start_server()
+
+        if self.mode.data.startswith("!"):
+            spec = f"{self.mode.data},{os.getpid()}"
+        elif self.mode.data:
+            spec = self.mode.data
         else:
-            self.last_exception = None
+            spec = f"!{os.getpid()}"
+        self._server.set_intercept(spec)
 
-    async def stop(self) -> None:
-        print("STOPPING")
-        assert self._server is not None
-        self._server.close()
-        await self._server.wait_closed()
-        self._server = None
-        self.last_exception = None
-        logger.info(f"Stopped {self.mode.description}.")
+        self.__class__._instance = self
 
-    @property
-    def listen_addrs(self) -> tuple[Address, ...]:
-        return tuple()
-
-    async def wg_handle_tcp_connection(self, stream: mitmproxy_rs.TcpStream) -> None:
-        await self.handle_tcp_connection(stream, stream)
+    async def _stop(self) -> None:
+        assert self._instance
+        self.__class__._instance = None
+        # We're not shutting down the server because we want to avoid additional UAC prompts.
+        self._server.set_intercept("")
 
 
 class RegularInstance(AsyncioServerInstance[mode_specs.RegularMode]):

@@ -30,6 +30,8 @@ from typing import ClassVar
 from typing import Literal
 from typing import TypeVar
 
+import mitmproxy_rs
+
 from mitmproxy.coretypes.serializable import Serializable
 from mitmproxy.net import server_spec
 
@@ -288,4 +290,5 @@ class OsProxyMode(ProxyMode):
     transport_protocol = None
 
     def __post_init__(self) -> None:
-        pass
+        # should not raise
+        mitmproxy_rs.WindowsProxy.describe_spec(self.data)
