@@ -153,7 +153,13 @@ def _test_binaries(binary_directory: Path) -> None:
             continue  # requires a TTY, which we don't have here.
 
         print(f"> {tool} -s selftest.py")
-        subprocess.check_call([executable, "-s", here / "selftest.py"])
+        subprocess.check_call(
+            [
+                executable,
+                *("--set", "web_open_browser=false"),
+                *("-s", here / "selftest.py"),
+            ]
+        )
 
 
 @cli.command()
