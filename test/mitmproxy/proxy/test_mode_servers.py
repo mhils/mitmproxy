@@ -341,7 +341,7 @@ async def test_udp_dual_stack(caplog_async):
 
 @pytest.fixture()
 def patched_local_redirector(monkeypatch):
-    start_local_redirector = AsyncMock()
+    start_local_redirector = AsyncMock(return_value=Mock())
     monkeypatch.setattr(mitmproxy_rs, "start_local_redirector", start_local_redirector)
     # make sure _server and _instance are restored after this test
     monkeypatch.setattr(LocalRedirectorInstance, "_server", None)

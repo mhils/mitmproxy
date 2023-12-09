@@ -41,7 +41,6 @@ async def tcp_server(handle_conn, **server_args) -> Address:
             if not writer.is_closing():
                 writer.close()
             await writer.wait_closed()
-        print("HANDLER DONE")
 
     async def _handle(r, w):
         tasks.create_task(handle_conn_wrapper(r, w))
