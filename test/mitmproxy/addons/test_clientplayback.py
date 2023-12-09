@@ -17,19 +17,32 @@ from mitmproxy.test import tflow
 
 @asynccontextmanager
 async def tcp_server(handle_conn, **server_args) -> Address:
-    """TCP server fixture.
+    """TCP server context manager that ensures its handlers are closed properly.
 
-    Caveats:
-        1. Spawning a TCP server is a bit slow. Consider using in-memory networking
-           for faster tests.
-        2. Make sure that you always close the StreamWriter in handle_conn
-           with .close() and wait_closed(). If you don't, you get random errors
-           appearing in other tests when StreamWriter.__del__ is called.
+    Spawning a TCP server is relatively slow. Consider using in-memory networking for faster tests.
     """
-    server = await asyncio.start_server(handle_conn, "127.0.0.1", 0, **server_args)
+
+    tasks = asyncio.TaskGroup()
+
+    async def handle_conn_wrapper(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            await handle_conn(reader, writer)
+        finally:
+            if not writer.is_closing():
+                writer.close()
+            await writer.wait_closed()
+
+    async def _handle(r, w):
+        tasks.create_task(handle_conn_wrapper(r, w))
+
+    server = await asyncio.start_server(_handle, "127.0.0.1", 0, **server_args)
     await server.start_serving()
     async with server:
-        yield server.sockets[0].getsockname()
+        async with tasks:
+            yield server.sockets[0].getsockname()
 
 
 @pytest.mark.parametrize("mode", ["http", "https", "upstream", "err"])
