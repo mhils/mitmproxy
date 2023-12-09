@@ -23,6 +23,7 @@ from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.connection import QuicConnection
 from aioquic.quic.connection import QuicConnectionError
 
+from .test_clientplayback import tcp_server
 import mitmproxy.platform
 from mitmproxy import dns
 from mitmproxy import exceptions
@@ -55,16 +56,6 @@ class HelperAddon:
         self.flows.append(f)
 
 
-@asynccontextmanager
-async def tcp_server(handle_conn) -> Address:
-    server = await asyncio.start_server(handle_conn, "127.0.0.1", 0)
-    await server.start_serving()
-    try:
-        yield server.sockets[0].getsockname()
-    finally:
-        server.close()
-
-
 async def test_start_stop(caplog_async):
     caplog_async.set_level("INFO")
 
@@ -75,6 +66,7 @@ async def test_start_stop(caplog_async):
         writer.write(b"HTTP/1.1 204 No Content\r\n\r\n")
         await writer.drain()
         writer.close()
+        await writer.wait_closed()
 
     ps = Proxyserver()
     nl = NextLayer()
@@ -133,6 +125,8 @@ async def test_inject() -> None:
     ):
         while s := await reader.read(1):
             writer.write(s.upper())
+        writer.close()
+        await writer.wait_closed()
 
     ps = Proxyserver()
     nl = NextLayer()
@@ -159,6 +153,9 @@ async def test_inject() -> None:
             assert await reader.read(1) == b"B"
             ps.inject_tcp(state.flows[0], True, b"c")
             assert await reader.read(1) == b"c"
+
+            writer.close()
+            await writer.wait_closed()
 
 
 async def test_inject_fail(caplog) -> None:
@@ -311,6 +308,9 @@ async def test_dns(caplog_async) -> None:
         tctx.configure(ps, server=False)
         await caplog_async.await_log("stopped")
 
+        w.close()
+        await w.wait_closed()
+
 
 def test_validation_no_transparent(monkeypatch):
     monkeypatch.setattr(mitmproxy.platform, "original_addr", None)
@@ -372,6 +372,9 @@ async def test_udp(caplog_async) -> None:
             assert len(ps.connections) == 1
             tctx.configure(ps, server=False)
             await caplog_async.await_log("stopped")
+
+            w.close()
+            await w.wait_closed()
 
 
 class H3EchoServer(QuicConnectionProtocol):

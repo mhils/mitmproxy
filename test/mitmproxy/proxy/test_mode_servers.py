@@ -269,6 +269,7 @@ async def test_udp_start_stop(caplog_async):
         assert await caplog_async.await_log("sent an invalid message")
 
         writer.close()
+        await writer.wait_closed()
 
         await inst.stop()
         assert await caplog_async.await_log("stopped")
@@ -324,6 +325,7 @@ async def test_udp_dual_stack(caplog_async):
         writer.write(b"\x00\x00\x01")
         assert await caplog_async.await_log("sent an invalid message")
         writer.close()
+        await writer.wait_closed()
 
         if "listening on IPv4 only" not in caplog_async.caplog.text:
             caplog_async.clear()
@@ -331,6 +333,7 @@ async def test_udp_dual_stack(caplog_async):
             writer.write(b"\x00\x00\x01")
             assert await caplog_async.await_log("sent an invalid message")
             writer.close()
+            await writer.wait_closed()
 
         await inst.stop()
         assert await caplog_async.await_log("stopped")

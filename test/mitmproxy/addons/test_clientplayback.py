@@ -17,12 +17,19 @@ from mitmproxy.test import tflow
 
 @asynccontextmanager
 async def tcp_server(handle_conn, **server_args) -> Address:
+    """TCP server fixture.
+
+    Caveats:
+        1. Spawning a TCP server is a bit slow. Consider using in-memory networking
+           for faster tests.
+        2. Make sure that you always close the StreamWriter in handle_conn
+           with .close() and wait_closed(). If you don't, you get random errors
+           appearing in other tests when StreamWriter.__del__ is called.
+    """
     server = await asyncio.start_server(handle_conn, "127.0.0.1", 0, **server_args)
     await server.start_serving()
-    try:
+    async with server:
         yield server.sockets[0].getsockname()
-    finally:
-        server.close()
 
 
 @pytest.mark.parametrize("mode", ["http", "https", "upstream", "err"])
@@ -49,6 +56,8 @@ async def test_playback(tdata, mode, concurrency):
         writer.write(b"HTTP/1.1 204 No Content\r\n\r\n")
         await writer.drain()
         assert not await reader.read()
+        writer.close()
+        await writer.wait_closed()
         handler_ok.set()
 
     cp = ClientPlayback()
@@ -93,7 +102,7 @@ async def test_playback(tdata, mode, concurrency):
             assert cp.count() == 1
             await asyncio.wait_for(cp.queue.join(), 5)
             await asyncio.wait_for(handler_ok.wait(), 5)
-            cp.done()
+            await cp.done()
             if mode != "err":
                 assert flow.response.status_code == 204
 
@@ -107,6 +116,8 @@ async def test_playback_https_upstream():
         writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
         await writer.drain()
         assert not await reader.read()
+        writer.close()
+        await writer.wait_closed()
         handler_ok.set()
 
     cp = ClientPlayback()
@@ -123,7 +134,7 @@ async def test_playback_https_upstream():
             assert cp.count() == 1
             await asyncio.wait_for(cp.queue.join(), 5)
             await asyncio.wait_for(handler_ok.wait(), 5)
-            cp.done()
+            await cp.done()
             assert flow.response is None
             assert (
                 str(flow.error)
@@ -132,7 +143,7 @@ async def test_playback_https_upstream():
 
 
 async def test_playback_crash(monkeypatch, caplog_async):
-    async def raise_err():
+    async def raise_err(*_, **__):
         raise ValueError("oops")
 
     monkeypatch.setattr(ReplayHandler, "replay", raise_err)
@@ -141,8 +152,9 @@ async def test_playback_crash(monkeypatch, caplog_async):
         cp.running()
         cp.start_replay([tflow.tflow(live=False)])
         await caplog_async.await_log("Client replay has crashed!")
+        assert "oops" in caplog_async.caplog.text
         assert cp.count() == 0
-        cp.done()
+        await cp.done()
 
 
 def test_check():
