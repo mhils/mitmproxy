@@ -17,7 +17,11 @@ from mitmproxy.test import tflow
 
 @asynccontextmanager
 async def tcp_server(handle_conn, **server_args) -> Address:
-    """TCP server context manager that ensures its handlers are closed properly.
+    """TCP server context manager that
+
+    1. Exits only after all handlers have returned.
+    2. Ensures that all handlers are closed properly. If we don't do that,
+       we get ghost errors in others tests from StreamWriter.__dell__.
 
     Spawning a TCP server is relatively slow. Consider using in-memory networking for faster tests.
     """
@@ -30,10 +34,14 @@ async def tcp_server(handle_conn, **server_args) -> Address:
     ) -> None:
         try:
             await handle_conn(reader, writer)
+        except Exception as e:
+            print(f"!!! TCP handler failed: {e}")
+            raise
         finally:
             if not writer.is_closing():
                 writer.close()
             await writer.wait_closed()
+        print("HANDLER DONE")
 
     async def _handle(r, w):
         tasks.create_task(handle_conn_wrapper(r, w))
@@ -48,12 +56,9 @@ async def tcp_server(handle_conn, **server_args) -> Address:
 @pytest.mark.parametrize("mode", ["http", "https", "upstream", "err"])
 @pytest.mark.parametrize("concurrency", [-1, 1])
 async def test_playback(tdata, mode, concurrency):
-    handler_ok = asyncio.Event()
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         if mode == "err":
-            writer.close()
-            handler_ok.set()
             return
         req = await reader.readline()
         if mode == "upstream":
@@ -69,9 +74,6 @@ async def test_playback(tdata, mode, concurrency):
         writer.write(b"HTTP/1.1 204 No Content\r\n\r\n")
         await writer.drain()
         assert not await reader.read()
-        writer.close()
-        await writer.wait_closed()
-        handler_ok.set()
 
     cp = ClientPlayback()
     ps = Proxyserver()
@@ -114,24 +116,20 @@ async def test_playback(tdata, mode, concurrency):
             cp.start_replay([flow])
             assert cp.count() == 1
             await asyncio.wait_for(cp.queue.join(), 5)
-            await asyncio.wait_for(handler_ok.wait(), 5)
-            await cp.done()
-            if mode != "err":
-                assert flow.response.status_code == 204
+            while cp.replay_tasks:
+                await asyncio.sleep(0.001)
+        if mode != "err":
+            assert flow.response.status_code == 204
+        await cp.done()
 
 
 async def test_playback_https_upstream():
-    handler_ok = asyncio.Event()
-
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         conn_req = await reader.readuntil(b"\r\n\r\n")
         assert conn_req == b"CONNECT address:22 HTTP/1.1\r\n\r\n"
         writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
         await writer.drain()
         assert not await reader.read()
-        writer.close()
-        await writer.wait_closed()
-        handler_ok.set()
 
     cp = ClientPlayback()
     ps = Proxyserver()
@@ -146,13 +144,13 @@ async def test_playback_https_upstream():
             cp.start_replay([flow])
             assert cp.count() == 1
             await asyncio.wait_for(cp.queue.join(), 5)
-            await asyncio.wait_for(handler_ok.wait(), 5)
-            await cp.done()
-            assert flow.response is None
-            assert (
-                str(flow.error)
-                == f"Upstream proxy {addr[0]}:{addr[1]} refused HTTP CONNECT request: 502 Bad Gateway"
-            )
+
+        assert flow.response is None
+        assert (
+            str(flow.error)
+            == f"Upstream proxy {addr[0]}:{addr[1]} refused HTTP CONNECT request: 502 Bad Gateway"
+        )
+        await cp.done()
 
 
 async def test_playback_crash(monkeypatch, caplog_async):

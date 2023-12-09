@@ -65,8 +65,6 @@ async def test_start_stop(caplog_async):
         assert await reader.readuntil(b"\r\n\r\n") == b"GET /hello HTTP/1.1\r\n\r\n"
         writer.write(b"HTTP/1.1 204 No Content\r\n\r\n")
         await writer.drain()
-        writer.close()
-        await writer.wait_closed()
 
     ps = Proxyserver()
     nl = NextLayer()
@@ -125,8 +123,6 @@ async def test_inject() -> None:
     ):
         while s := await reader.read(1):
             writer.write(s.upper())
-        writer.close()
-        await writer.wait_closed()
 
     ps = Proxyserver()
     nl = NextLayer()
