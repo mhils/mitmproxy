@@ -147,11 +147,13 @@ class ClientPlayback:
     inflight: http.HTTPFlow | None
     queue: asyncio.Queue
     options: Options
+    replay_tasks: set[asyncio.Task]
 
     def __init__(self):
         self.queue = asyncio.Queue()
         self.inflight = None
         self.task = None
+        self.replay_tasks = set()
 
     def running(self):
         self.playback_task = asyncio_utils.create_task(
@@ -159,30 +161,29 @@ class ClientPlayback:
         )
         self.options = ctx.options
 
-    async def done(self):
+    def done(self):
         if self.playback_task:
             self.playback_task.cancel()
-            try:
-                await self.playback_task
-            except asyncio.CancelledError:
-                pass
 
     async def playback(self):
-        async with asyncio.TaskGroup() as replay_tasks:
-            while True:
-                self.inflight = await self.queue.get()
-                try:
-                    assert self.inflight
-                    h = ReplayHandler(self.inflight, self.options)
-                    if ctx.options.client_replay_concurrency == -1:
-                        t = replay_tasks.create_task(h.replay())
-                        asyncio_utils.set_task_debug_info(t, name="client playback awaiting response")
-                    else:
-                        await h.replay()
-                except Exception:
-                    logger.exception(f"Client replay has crashed!")
-                self.queue.task_done()
-                self.inflight = None
+        while True:
+            self.inflight = await self.queue.get()
+            try:
+                assert self.inflight
+                h = ReplayHandler(self.inflight, self.options)
+                if ctx.options.client_replay_concurrency == -1:
+                    t = asyncio_utils.create_task(
+                        h.replay(), name="client playback awaiting response"
+                    )
+                    # keep a reference so this is not garbage collected
+                    self.replay_tasks.add(t)
+                    t.add_done_callback(self.replay_tasks.remove)
+                else:
+                    await h.replay()
+            except Exception:
+                logger.exception(f"Client replay has crashed!")
+            self.queue.task_done()
+            self.inflight = None
 
     def check(self, f: flow.Flow) -> str | None:
         if f.live or f == self.inflight:
