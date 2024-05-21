@@ -32,8 +32,8 @@ classifiers = [
 # It is not considered best practice to use install_requires to pin dependencies to specific versions.
 dependencies = [
     "aioquic>=1.0.0,<=1.0.0",
-    "asgiref>=3.2.10,<=3.8.1",
-    "Brotli>=1.0,<=1.1.0",
+    "asgiref>=3.2.10,<=3.2.10",
+    "Brotli>=1.0,<=1.0",
     "certifi>=2019.9.11",  # no upper bound here to get latest CA bundle
     "cryptography>=42.0,<42.1",  # relaxed upper bound here to get security fixes
     "flask>=3.0,<=3.0.3",
@@ -62,7 +62,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "click>=7.0,<=8.1.7",
+    "click>=7.0,<=7.0",
     "hypothesis>=5.8,<=6.102.4",
     "pdoc>=4.0.0,<=14.5.0",
     "pyinstaller>=6.6.0,<=6.6.0",
@@ -80,9 +80,9 @@ dev = [
     "types-certifi>=2021.10.8.3,<=2021.10.8.3",
     "types-Flask>=1.1.6,<=1.1.6",
     "types-Werkzeug>=1.0.9,<=1.0.9",
-    "types-requests>=2.31.0.10,<=2.32.0.20240521",
+    "types-requests>=2.31.0.10,<=2.31.0.10",
     "types-cryptography>=3.3.23.2,<=3.3.23.2",
-    "types-pyOpenSSL>=23.3.0.0,<=24.1.0.20240425",
+    "types-pyOpenSSL>=23.3.0.0,<=23.3.0.0",
 ]
 
 [project.urls]
