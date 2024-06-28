@@ -10,6 +10,8 @@ from ipaddress import IPv4Address
 from ipaddress import IPv6Address
 from typing import ClassVar
 
+import mitmproxy_rs
+
 from mitmproxy import flow
 from mitmproxy.coretypes import serializable
 from mitmproxy.net.dns import classes
@@ -287,10 +289,12 @@ class Message(serializable.SerializableDataclass):
     @classmethod
     def unpack(cls, buffer: bytes) -> Message:
         """Converts the entire given buffer into a DNS message."""
-        length, msg = cls.unpack_from(buffer, 0)
-        if length != len(buffer):
-            raise struct.error(f"unpack requires a buffer of {length} bytes")
-        return msg
+        state = {
+            "timestamp": time.time(),
+            **mitmproxy_rs.parse_dns_message(buffer)
+        }
+        print(f"{state=}")
+        return cls.from_state(state)
 
     @classmethod
     def unpack_from(cls, buffer: bytes | bytearray, offset: int) -> tuple[int, Message]:
