@@ -41,3 +41,11 @@ def is_valid_host(host: AnyStr) -> bool:
 
 def is_valid_port(port: int) -> bool:
     return 0 <= port <= 65535
+
+
+def is_ip_address(address: str) -> bool:
+    try:
+        ipaddress.ip_address(address)
+        return True
+    except ValueError:
+        return False

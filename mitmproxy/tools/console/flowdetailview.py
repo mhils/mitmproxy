@@ -120,6 +120,9 @@ def flowdetails(state, flow: mitmproxy.flow.Flow):
     if sc is not None and sc.timestamp_start:
         parts.append(("Server conn. initiated", maybe_timestamp(sc, "timestamp_start")))
         parts.append(
+            ("Server conn. DNS resolved", maybe_timestamp(sc, "timestamp_dns_resolved"))
+        )
+        parts.append(
             ("Server conn. TCP handshake", maybe_timestamp(sc, "timestamp_tcp_setup"))
         )
         if sc.tls_established:
