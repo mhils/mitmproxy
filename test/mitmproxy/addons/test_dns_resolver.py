@@ -154,6 +154,7 @@ async def test_lookup(
             case other:
                 typing.assert_never(other)
 
+
 async def test_unspec_lookup(monkeypatch):
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", getaddrinfo)
     assert await GetaddrinfoFallbackResolver().lookup_ip("ipv6.example.com") == ["::1"]

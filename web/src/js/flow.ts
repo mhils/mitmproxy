@@ -67,6 +67,7 @@ export interface Client extends Connection {
 export interface Server extends Connection {
     address?: Address;
     timestamp_tcp_setup?: number;
+    timestamp_dns_resolved?: number;
 }
 
 export interface Certificate {

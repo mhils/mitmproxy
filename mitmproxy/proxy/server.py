@@ -11,6 +11,7 @@ import abc
 import asyncio
 import collections
 import logging
+import socket
 import time
 from collections.abc import Awaitable
 from collections.abc import Callable
@@ -26,10 +27,12 @@ import mitmproxy_rs
 from mitmproxy import http
 from mitmproxy import options as moptions
 from mitmproxy import tls
+from mitmproxy.addons.dns_resolver import DnsResolver
 from mitmproxy.connection import Address
 from mitmproxy.connection import Client
 from mitmproxy.connection import Connection
 from mitmproxy.connection import ConnectionState
+from mitmproxy.net.check import is_ip_address
 from mitmproxy.proxy import commands
 from mitmproxy.proxy import events
 from mitmproxy.proxy import layer
@@ -94,6 +97,9 @@ class ConnectionIO:
     handler: asyncio.Task | None = None
     reader: asyncio.StreamReader | mitmproxy_rs.Stream | None = None
     writer: asyncio.StreamWriter | mitmproxy_rs.Stream | None = None
+
+
+dns_resolver_fixme = DnsResolver()
 
 
 class ConnectionHandler(metaclass=abc.ABCMeta):
@@ -209,22 +215,48 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
             writer: asyncio.StreamWriter | mitmproxy_rs.Stream
             try:
                 command.connection.timestamp_start = time.time()
+
+                # DNS resolution
+                if is_ip_address(command.connection.address[0]):
+                    ips = [command.connection.address[0]]
+                    command.connection.timestamp_dns_resolved = (
+                        command.connection.timestamp_start
+                    )
+                else:
+                    if (
+                        resolver := dns_resolver_fixme.resolver()
+                    ):  # FIXME: reuse shared instance
+                        ips = await resolver.lookup_ip(command.connection.address[0])
+                        command.connection.timestamp_dns_resolved = time.time()
+                    else:
+                        raise OSError("Cannot resolve, dns_name_servers unknown.")
+
+                port = command.connection.address[1]
+
+                # Connection establishment
                 if command.connection.transport_protocol == "tcp":
-                    reader, writer = await asyncio.open_connection(
-                        *command.connection.address,
-                        local_addr=command.connection.sockname,
+                    reader, writer = await self.open_tcp_connection(
+                        ips, port, local_addr=command.connection.sockname
                     )
                 elif command.connection.transport_protocol == "udp":
-                    reader = writer = await mitmproxy_rs.udp.open_udp_connection(
-                        *command.connection.address,
-                        local_addr=command.connection.sockname,
+                    reader = writer = await self.open_udp_connection(
+                        ips, port, local_addr=command.connection.sockname
                     )
                 else:
                     raise AssertionError(command.connection.transport_protocol)
-            except (OSError, asyncio.CancelledError) as e:
-                err = str(e)
-                if not err:  # str(CancelledError()) returns empty string.
+            except (socket.gaierror, OSError, asyncio.CancelledError) as e:
+                if isinstance(e, socket.gaierror):
+                    match e.args[0]:
+                        case socket.EAI_NONAME:
+                            err = f"unknown domain: {command.connection.address[0]}"
+                        case socket.EAI_NODATA:
+                            err = f"domain has no A/AAAA records: {command.connection.address[0]}"
+                        case _:
+                            err = f"failed to resolve {command.connection.address[0]}: {e}"
+                elif isinstance(e, asyncio.CancelledError):
                     err = "connection cancelled"
+                else:
+                    err = str(e)
                 self.log(f"error establishing server connection: {err}")
                 command.connection.error = err
                 await self.handle_hook(server_hooks.ServerConnectErrorHook(hook_data))
@@ -236,7 +268,7 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
                     raise
             else:
                 if command.connection.transport_protocol == "tcp":
-                    # TODO: Rename to `timestamp_setup` and make it agnostic for both TCP (SYN/ACK) and UDP (DNS resl.)
+                    # TODO: Rename to `timestamp_established` and make it agnostic for both TCP and UDP.
                     command.connection.timestamp_tcp_setup = time.time()
                 command.connection.state = ConnectionState.OPEN
                 command.connection.peername = writer.get_extra_info("peername")
@@ -264,6 +296,67 @@ class ConnectionHandler(metaclass=abc.ABCMeta):
                     await self.handle_hook(
                         server_hooks.ServerDisconnectedHook(hook_data)
                     )
+
+    async def open_udp_connection(
+        self, ips: list[str], port: int, local_addr: tuple[str, int] | None
+    ) -> mitmproxy_rs.Stream:
+        stream = None
+        exceptions = []
+        for ip in ips:
+            try:
+                stream = await mitmproxy_rs.udp.open_udp_connection(
+                    host=ip,
+                    port=port,
+                    local_addr=local_addr,
+                )
+                break
+            except Exception as e:
+                exceptions.append(e)
+                continue
+        if stream is None:
+            raise OSError(
+                f"connection establishment failed: {'; '.join({str(e) for e in exceptions})}"
+            )
+        return stream
+
+    async def open_tcp_connection(
+        self, ips: list[str], port: int, local_addr: tuple[str, int] | None
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        # We want to use happy eyeballs here, but https://github.com/python/cpython/issues/124309.
+        sock = None
+        exceptions = []
+        for ip in ips:
+            try:
+                sock = await self._connect_sock(
+                    ip=ip, port=port, type=socket.SOCK_STREAM, local_addr=local_addr
+                )
+                break
+            except OSError as e:
+                exceptions.append(repr(e))
+                continue
+        if sock is None:
+            raise OSError(
+                f"connection establishment failed: {'; '.join({str(e) for e in exceptions})}"
+            )
+        return await asyncio.open_connection(sock=sock)
+
+    async def _connect_sock(
+        self, ip: str, port: int, type: int, local_addr: tuple[str, int] | None
+    ):
+        if ":" in ip:
+            family = socket.AF_INET6
+        else:
+            family = socket.AF_INET
+        sock = socket.socket(family=family, type=type)
+        try:
+            sock.setblocking(False)
+            if local_addr:
+                sock.bind(local_addr)
+            await asyncio.get_running_loop().sock_connect(sock, (ip, port))
+        except:
+            sock.close()
+            raise
+        return sock
 
     async def wakeup(self, request: commands.RequestWakeup) -> None:
         await asyncio.sleep(request.delay)

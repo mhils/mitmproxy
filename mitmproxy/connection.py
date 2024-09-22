@@ -292,6 +292,12 @@ class Server(Connection):
 
     For IP addresses, this corresponds to sending a TCP SYN; for domains, this corresponds to starting a DNS lookup.
     """
+    timestamp_dns_resolved: float | None = None
+    """
+    *Timestamp:* DNS lookup complete. 
+    
+    For IP addresses, this value will be equal to `timestamp_start`.
+    """
     timestamp_tcp_setup: float | None = None
     """*Timestamp:* TCP ACK received."""
 

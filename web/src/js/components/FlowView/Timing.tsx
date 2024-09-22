@@ -41,6 +41,11 @@ export default function Timing({ flow }: { flow: Flow }) {
             deltaTo: ref,
         },
         {
+            title: "Server conn. DNS resolved",
+            t: flow.server_conn?.timestamp_dns_resolved,
+            deltaTo: ref,
+        },
+        {
             title: "Server conn. TCP handshake",
             t: flow.server_conn?.timestamp_tcp_setup,
             deltaTo: ref,

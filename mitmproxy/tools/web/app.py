@@ -109,6 +109,7 @@ def flow_to_json(flow: mitmproxy.flow.Flow) -> dict:
             "alpn": always_str(flow.server_conn.alpn, "ascii", "backslashreplace"),
             "tls_version": flow.server_conn.tls_version,
             "timestamp_start": flow.server_conn.timestamp_start,
+            "timestamp_dns_resolved": flow.server_conn.timestamp_dns_resolved,
             "timestamp_tcp_setup": flow.server_conn.timestamp_tcp_setup,
             "timestamp_tls_setup": flow.server_conn.timestamp_tls_setup,
             "timestamp_end": flow.server_conn.timestamp_end,

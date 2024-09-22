@@ -44,6 +44,7 @@ class DnsResolver:
         The Operating System name servers,
         or `[]` if they cannot be determined.
         """
+        # The point of returning an empty list instead of raising an exception is caching.
         try:
             return (
                 ctx.options.dns_name_servers
@@ -57,12 +58,10 @@ class DnsResolver:
             return []
 
     @cache
-    def resolver(self) -> Resolver:
+    def resolver(self) -> Resolver | None:
         """
         Returns:
-            The DNS resolver to use.
-        Raises:
-            MissingNameServers, if name servers are unknown but the host file should be ignored.
+            The DNS resolver to use, or `None` if nameservers are missing.
         """
         if ns := self.name_servers():
             # We always want to use our own resolver if name server info is available.
@@ -75,7 +74,7 @@ class DnsResolver:
             # as we would like it to be (https://github.com/mitmproxy/mitmproxy/issues/7064).
             return GetaddrinfoFallbackResolver()
         else:
-            raise MissingNameServers()
+            return None
 
     async def dns_request(self, flow: dns.DNSFlow) -> None:
         if self._should_resolve(flow):
@@ -87,9 +86,9 @@ class DnsResolver:
                 and flow.request.question.type in (dns.types.A, dns.types.AAAA)
             )
             if all_ip_lookups:
-                try:
+                if self.resolver():
                     flow.response = await self.resolve(flow.request)
-                except MissingNameServers:
+                else:
                     flow.error = Error("Cannot resolve, dns_name_servers unknown.")
             elif name_servers := self.name_servers():
                 # For other records, the best we can do is to forward the query
@@ -159,8 +158,12 @@ class Resolver(Protocol):
 
 
 class GetaddrinfoFallbackResolver:
+    def __init__(self):
+        self.getaddrinfo = asyncio.get_running_loop().getaddrinfo
+
     async def lookup_ip(self, domain: str) -> list[str]:
-        return await self._lookup(domain, socket.AF_UNSPEC)
+        ips = await self._lookup(domain, socket.AF_UNSPEC)
+        return _interleave_ips(ips)
 
     async def lookup_ipv4(self, domain: str) -> list[str]:
         return await self._lookup(domain, socket.AF_INET)
@@ -169,7 +172,7 @@ class GetaddrinfoFallbackResolver:
         return await self._lookup(domain, socket.AF_INET6)
 
     async def _lookup(self, domain: str, family: socket.AddressFamily) -> list[str]:
-        addrinfos = await asyncio.get_running_loop().getaddrinfo(
+        addrinfos = await self.getaddrinfo(
             host=domain,
             port=None,
             family=family,
@@ -178,5 +181,20 @@ class GetaddrinfoFallbackResolver:
         return [addrinfo[4][0] for addrinfo in addrinfos]
 
 
-class MissingNameServers(RuntimeError):
-    pass
+def _interleave_ips(ips) -> list[str]:
+    """Interleave IPs by family for happy eyeballs."""
+    ipv4 = []
+    ipv6 = []
+    for ip in ips:
+        if ":" in ip:
+            ipv6.append(ip)
+        else:
+            ipv4.append(ip)
+
+    ret = []
+    while ipv4:
+        ret.append(ipv4.pop())
+        if ipv6:
+            ret.append(ipv6.pop())
+    ret.extend(ipv6)
+    return ret
