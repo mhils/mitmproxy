@@ -5,6 +5,7 @@ import json
 import logging
 import os.path
 import re
+import secrets
 import sys
 from collections.abc import Callable
 from collections.abc import Sequence
@@ -30,6 +31,7 @@ from mitmproxy import optmanager
 from mitmproxy import version
 from mitmproxy.dns import DNSFlow
 from mitmproxy.http import HTTPFlow
+from mitmproxy.net.http import status_codes
 from mitmproxy.tcp import TCPFlow
 from mitmproxy.tcp import TCPMessage
 from mitmproxy.udp import UDPFlow
@@ -277,9 +279,14 @@ class RequestHandler(tornado.web.RequestHandler):
 
 class IndexHandler(RequestHandler):
     def get(self):
-        token = self.xsrf_token  # https://github.com/tornadoweb/tornado/issues/645
-        assert token
-        self.render("index.html")
+        # Forbid access for non-navigate fetch modes so that they can't obtain xsrf_token.
+        sec_fetch_mode = self.request.headers.get("Sec-Fetch-Mode", "navigate")
+        if sec_fetch_mode != "navigate":
+            raise APIError(
+                status_codes.PRECONDITION_FAILED,
+                f"Unexpected Sec-Fetch-Mode header: {sec_fetch_mode}"
+            )
+        self.render("index.html", xsrf_token=self.xsrf_token)
 
 
 class FilterHelp(RequestHandler):
@@ -718,7 +725,8 @@ class Application(tornado.web.Application):
             template_path=os.path.join(os.path.dirname(__file__), "templates"),
             static_path=os.path.join(os.path.dirname(__file__), "static"),
             xsrf_cookies=True,
-            cookie_secret=os.urandom(256),
+            xsrf_cookie_kwargs=dict(httponly=True, samesite="Strict"),
+            cookie_secret=secrets.token_bytes(32),
             debug=debug,
             autoreload=False,
             transforms=[GZipContentAndFlowFiles],
