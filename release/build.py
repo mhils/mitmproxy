@@ -57,8 +57,7 @@ def wheel():
     else:
         ver = "*"
     (whl,) = DIST_DIR.glob(f"mitmproxy-{ver}-py3-none-any.whl")
-    print(f"Found wheel package: {whl}")
-    subprocess.check_call(["tox", "-e", "wheeltest", "--", whl])
+    print(f"Built wheel package: {whl}")
 
 
 class ZipFile2(zipfile.ZipFile):

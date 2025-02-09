@@ -19,9 +19,12 @@ concurrency:
 
 jobs:
   lint:
-    uses: mhils/workflows/.github/workflows/python-tox.yml@34e9a0dabe3f355d60c385cdb1b1368c9219ecd3
-    with:
-      cmd: tox -e lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mhils/workflows/checkout@v16
+      - uses: mhils/workflows/setup-python@v16
+      - uses: mhils/workflows/setup-uv@v16
+      - run: uv run tox -e lint
 
   filename-matching:
     uses: mhils/workflows/.github/workflows/python-tox.yml@34e9a0dabe3f355d60c385cdb1b1368c9219ecd3

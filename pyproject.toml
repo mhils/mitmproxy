@@ -58,30 +58,40 @@ dependencies = [
     "zstandard>=0.15,<=0.23.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "click>=7.0,<=8.1.8",
-    "hypothesis>=6.104.2,<=6.124.9",
-    "pdoc>=14.5.1,<=15.0.1",
+[dependency-groups]
+lint = [
+    "ruff==0.9.4",
+]
+typecheck = [
+    "mypy==1.14.1",
+    "types-certifi==2021.10.8.3",
+    "types-Flask==1.1.6",
+    "types-Werkzeug==1.0.9",
+    "types-requests==2.32.0.20241016",
+    "types-cryptography==3.3.23.2",
+    "types-pyOpenSSL==24.1.0.20240722",
+]
+test = [
+    "hypothesis==6.124.9",
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.3",
+    "pytest-cov==6.0.0",
+    "pytest-timeout==2.3.1",
+    "pytest-xdist==3.6.1",
+    "tox==4.24.1",
+    "tox-uv==1.23.0",
+]
+build = [
+    "click==8.1.8",
+    "pdoc==15.0.1",
     "pyinstaller==6.11.1",
     "pyinstaller-hooks-contrib==2025.1",
-    "pytest-asyncio>=0.23.6,<=0.25.3",
-    "pytest-cov>=5.0.0,<=6.0.0",
-    "pytest-timeout>=2.3.1,<=2.3.1",
-    "pytest-xdist>=3.5.0,<=3.6.1",
-    "pytest>=8.2.2,<=8.3.4",
-    "requests>=2.9.1,<=2.32.3",
-    "tox>=4.15.1,<=4.24.1",
-    "wheel>=0.36.2,<=0.45.1",
-    "build>=0.10.0,<=1.2.2.post1",
-    "mypy>=1.10.1,<=1.14.1",
-    "ruff>=0.5.0,<=0.9.4",
-    "types-certifi>=2021.10.8.3,<=2021.10.8.3",
-    "types-Flask>=1.1.6,<=1.1.6",
-    "types-Werkzeug>=1.0.9,<=1.0.9",
-    "types-requests>=2.32.0.20240622,<=2.32.0.20241016",
-    "types-cryptography>=3.3.23.2,<=3.3.23.2",
-    "types-pyOpenSSL>=23.3.0.0,<=24.1.0.20240722",
+    "wheel==0.45.1",
+    "build==1.2.2.post1",
+]
+dev = [
+    "tox==4.24.1",
+    "tox-uv==1.23.0",
 ]
 
 [project.urls]
@@ -273,50 +283,42 @@ no-lines-before = ["first-party"]
 known-first-party = ["test", "mitmproxy", "mitmproxy_rs"]
 
 [tool.tox]
-legacy_tox_ini = """
-[tox]
-envlist = py, lint, mypy
-skipsdist = True
-toxworkdir={env:TOX_WORK_DIR:.tox}
+envlist = ["lint", "mypy", "py"]
+toxworkdir="{env:TOX_WORK_DIR:.tox}"
 
-[testenv]
-deps =
-  -e .[dev]
-setenv = HOME = {envtmpdir}
-commands =
-  mitmdump --version
-  pytest --timeout 60 -vv \
-    --cov-report xml \
-    --continue-on-collection-errors \
-    --cov=mitmproxy --cov=release \
-    {posargs}
+[tool.tox.env_run_base]
+runner = "uv-venv-lock-runner"
+package = "editable"
+dependency_groups = ["test"]
+commands = [
+    ["mitmdump", "--version"],
+    ["pytest",
+        "-vv",
+        "--cov-report", "xml",
+        "--continue-on-collection-errors",
+        "--cov=mitmproxy",
+        "--cov=release",
+        { replace = "posargs", default = ["--timeout", "60"], extend = true }
+    ],
+]
 
-[testenv:old-dependencies]
-uv_resolution = lowest-direct
+[tool.tox.env.lint]
+dependency_groups = ["lint"]
+commands = [["ruff", "check",  "."]]
+package = "skip"
 
-[testenv:lint]
-commands =
-  ruff check .
+[tool.tox.env.filename_matching]
+dependency_groups = []
+commands = [["python", "./test/filename_matching.py"]]
 
-[testenv:filename_matching]
-deps =
-commands =
-  python ./test/filename_matching.py
+[tool.tox.env.mypy]
+dependency_groups = ["typecheck"]
+commands = [["mypy"]]
 
-[testenv:mypy]
-commands =
-  mypy {posargs}
+[tool.tox.env.old-dependencies]
+runner = "uv-venv-runner"
+uv_resolution = "lowest-direct"
 
-[testenv:individual_coverage]
-commands =
-  python ./test/individual_coverage.py {posargs}
 
-[testenv:wheeltest]
-recreate = True
-deps =
-commands =
-  pip install {posargs}
-  mitmproxy --version
-  mitmdump --version
-  mitmweb --version
-"""
+[tool.tox.env.individual_coverage]
+commands = [["python", { default = ["./test/individual_coverage.py"], replace = "posargs", extend = true }]]
