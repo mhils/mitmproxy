@@ -437,6 +437,10 @@ class TLSLayer(tunnel.TunnelLayer):
             if self.debug:
                 yield commands.Log(f"{self.debug}[tls] close_notify {self.conn}", DEBUG)
             yield from self.event_to_child(events.ConnectionClosed(self.conn))
+        else:
+            # OpenSSL logic: `recv()` may have advanced the state machine and new data is available to send.
+            # https://github.com/mitmproxy/mitmproxy/discussions/7550
+            yield from self.tls_interact()
 
     def receive_close(self) -> layer.CommandGenerator[None]:
         if self.tls.get_shutdown() & SSL.RECEIVED_SHUTDOWN:
